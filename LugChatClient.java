@@ -5,11 +5,15 @@ import java.io.*;
 import javax.json.*;
 import javax.json.stream.*;
 import java.security.*;
+import java.security.spec.*;
 
 public class LugChatClient {
 
-	public static JsonObject makeMessage(JsonObject messageData, String privKey){
-		String signature = "signed-with-"+privKey; //replace with actual signing code
+	public static JsonObject makeMessage(JsonObject messageData, Signature sig) throws SignatureException {
+		// Signature sig = Signature.getInstance("SHA512withRSA");
+		// sig.initSign(kpair.getPrivate());
+		sig.update(messageData.toString().getBytes());
+		String signature = Base64.getEncoder().encodeToString(sig.sign()); //"signed-with-"+privKey; //replace with actual signing code
 		return Json.createObjectBuilder().add("message",messageData).add("sig",signature).build();
 	}
 	public static JsonObject makeMessageDataObject(String type, String nick, JsonObject content){
@@ -73,6 +77,7 @@ public class LugChatClient {
 				String line = in.readLine();
 				latestMessage = Json.createReader(new StringReader(line)).readObject();
 				System.out.println("Rx: '"+latestMessage+"'");
+				System.out.print("\n>");
 				messageQueue.add(latestMessage);
 				synchronized(messageQueue){
 					messageQueue.notify();
@@ -113,6 +118,7 @@ public class LugChatClient {
 				System.out.println("Message:");
 				System.out.println(message);
 				System.out.println("---");
+				System.out.println(">");
 			} else {
 				try{
 					synchronized(messageQueue){
@@ -125,19 +131,43 @@ public class LugChatClient {
 		}
 	}
 
-	public static void processUserInput(Scanner scan, PrintWriter out, String nick){
+	public static void processMessageOutQueue(Vector<JsonObject> messageOutQueue, PrintWriter out){
+		while(notStopping){
+			if(messageOutQueue.size()>0){
+				JsonObject message = messageOutQueue.remove(0);
+				out.write(message+"\n"); out.flush();
+				//if is a disconnect message, update notStopping for everyone
+				if(message.getJsonObject("message").getString("type").equalsIgnoreCase("disconnect")){
+					notStopping = false;
+				}
+			} else {
+				try{
+					synchronized(messageOutQueue){
+						messageOutQueue.wait(2000);
+					}
+				} catch(InterruptedException ie){
+					//timeout exception is OK, just loop around
+				}
+			}
+		}
+	}
+
+	public static void processUserInput(Scanner scan, Vector<JsonObject> messageOutQueue, String nick, Signature sig){
 		String userInput;
 		JsonObject msg;
 		while(notStopping){
 			System.out.print(">");
 			userInput = scan.nextLine();
-			if(userInput.equalsIgnoreCase("disconnect.")){
-				notStopping = false;
-				msg = makeMessage(makeMessageDataObject("disconnect",nick,makeDisconnectMessage()),"client-private-key");
-			} else{
-				msg = makeMessage(makeMessageDataObject("post",nick,makePostMessage(userInput)),"client-private-key");
+			try{
+				if(userInput.equalsIgnoreCase(".disconnect")){
+					msg = makeMessage(makeMessageDataObject("disconnect",nick,makeDisconnectMessage()),sig);
+				} else{
+					msg = makeMessage(makeMessageDataObject("post",nick,makePostMessage(userInput)),sig);
+				}
+				messageOutQueue.add(msg);
+			} catch(SignatureException se){
+				throw new RuntimeException("Error signing messages", se);
 			}
-			out.write(msg+"\n"); out.flush();
 		}
 	}
 
@@ -148,21 +178,48 @@ public class LugChatClient {
 			BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));
 			// InputStream in = s.getInputStream();
 		) {
+			//keys
+			File pubFD = new File("key.pub"), privFD = new File("key.priv");
+			KeyPair keypair;
+			if(!(pubFD.exists()&&privFD.exists())){
+				keypair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
+				//attempt to store keys
+				FileWriter fw = new FileWriter(pubFD);
+				fw.write(Base64.getEncoder().encodeToString(keypair.getPublic().getEncoded()));
+				fw.close();
+				fw = new FileWriter(privFD);
+				fw.write(Base64.getEncoder().encodeToString(keypair.getPrivate().getEncoded()));
+				fw.close();
+			} else {
+				KeyFactory kfac = KeyFactory.getInstance("RSA");
+				keypair = new KeyPair(
+					kfac.generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(new String(java.nio.file.Files.readAllBytes(pubFD.toPath()))))),
+					kfac.generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(new String(java.nio.file.Files.readAllBytes(privFD.toPath())))))
+				);
+			}
+			Signature sig = Signature.getInstance("SHA512withRSA");
+			sig.initSign(keypair.getPrivate());
+			//setup
 			Scanner scan = new Scanner(System.in);
 			String termIn;
 			notStopping = true;
 			Vector<JsonObject> messageQueue = new Vector<JsonObject>();
+			Vector<JsonObject> messageOutQueue = new Vector<JsonObject>();
 			//start thread for parsing server messages
 			Thread psmThread = new Thread(){ public void run(){ parseServerMessages(in,messageQueue); }};
 			psmThread.start();
-			//start thread for processing messages
-			Thread pmqThread = new Thread(){ public void run(){ processMessageQueue(messageQueue); }};
-			pmqThread.start();
 			//start thread for handling user input
-			Thread puiThread = new Thread(){ public void run(){ processUserInput(scan,out,args[2]); }};
+			Thread puiThread = new Thread(){ public void run(){ processUserInput(scan,messageOutQueue,args[2], sig); }};
+			//start thread for processing INCOMING messages
+			Thread pmqThread = new Thread(){ public void run(){ processMessageQueue(messageQueue); }};
+			//start thread for processing OUTGOING messages
+			Thread pmoqThread = new Thread(){ public void run(){ processMessageOutQueue(messageOutQueue,out); }};
+			pmoqThread.start();
+			//join threads with shared reader/writer/stream objects
 			puiThread.start();
 			psmThread.join();
 			puiThread.join();
+			pmoqThread.join();
 		} catch(Exception e){
 			throw new RuntimeException(e);
 		}
