@@ -43,13 +43,15 @@ public class LugChatServer {
 		return makeJsonResponseMessage("history",true,"none",Json.createObjectBuilder().add("msg-list",jab.build()).build());
 	}
 
-	public static void handleClientConnection(Socket s, Vector<JsonObject> history, Signature sig) throws Exception{
+	public static void handleClientConnection(Socket s, Vector<JsonObject> history, KeyPair keypair) throws Exception{
 		System.out.println("Client connected: "+s.getInetAddress()+":"+s.getPort());
 		PrintWriter out = new PrintWriter(s.getOutputStream(), true);
 		BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));
 		String inLine, outLine;
 		PublicKey clientPubKey = null;
 		Signature clientVerifier =Signature.getInstance("SHA512withRSA");
+		Signature serverSig = Signature.getInstance("SHA512withRSA");
+		serverSig.initSign(keypair.getPrivate());
 		while(true){
 			inLine = in.readLine();
 			if(inLine == null) break;
@@ -66,13 +68,29 @@ public class LugChatServer {
 			//verify signature
 			clientVerifier.update(jobj.getJsonObject("message").toString().getBytes());
 			boolean sigCheck = clientVerifier.verify(Base64.getDecoder().decode(jobj.getString("sig")));
+			JsonObject response = null;
 			if(sigCheck){
 				System.out.println("Message verified.");
+				switch(jobj.getJsonObject("message").getString("type")){
+				case "hello":
+					String encodedServerPubKey = Base64.getEncoder().encodeToString(keypair.getPublic().getEncoded());
+					response = makeMessage( makeHelloResponse(encodedServerPubKey), serverSig);
+					break;
+				case "post":
+					response = makeMessage( makeJsonResponseMessage("post",true,"none"), serverSig);
+					break;
+				case "disconnect":
+					response = makeMessage(makeJsonResponseMessage("disconnect",true,"none"), serverSig);
+					break;
+				default:
+					response = makeMessage(makeJsonResponseMessage(jobj.getJsonObject("message").getString("type"),false,"format"), serverSig);
+				}
 			} else {
 				System.out.println("Message verification failed.");
+				response = makeMessage(makeJsonResponseMessage(jobj.getJsonObject("message").getString("type"),false,"signature"), serverSig);
 			}
 			// history.add(inLine);
-			out.write(makeMessage(makeJsonResponseMessage("tmp",true,"none"),sig)+"\n");
+			out.write(response+"\n");
 			// out.write("test.\n");
 			out.flush();
 		}
@@ -89,7 +107,6 @@ public class LugChatServer {
 		//keys
 		File pubFD = new File("server-pub.key"), privFD = new File("server-priv.key");
 		KeyPair keypair;
-		Signature sig;
 		try{
 			if(!(pubFD.exists()&&privFD.exists())){
 				keypair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
@@ -106,8 +123,6 @@ public class LugChatServer {
 					kfac.generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(new String(java.nio.file.Files.readAllBytes(privFD.toPath())))))
 				);
 			}
-			sig = Signature.getInstance("SHA512withRSA");
-			sig.initSign(keypair.getPrivate());
 		} catch(Exception e){ throw new RuntimeException("Error setting up keys.",e); }
 		//main loop
 		while(true){
@@ -115,7 +130,7 @@ public class LugChatServer {
 				ServerSocket servSock = new ServerSocket(listenPort);
 				Socket established = servSock.accept();
 			){
-				handleClientConnection(established,messageHistory,sig);
+				handleClientConnection(established,messageHistory,keypair);
 			} catch(Exception e){
 				throw new RuntimeException(e);
 			}			
