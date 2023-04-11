@@ -111,6 +111,7 @@ public class LugChatClient {
 		// System.out.println("Beginning processing message queue thread.");
 		// System.out.print("\n>");
 		PublicKey serverPubKey = null;
+		Signature serverVerifier = null;
 		while(notStopping){
 			if(messageQueue.size()>0){
 				if(serverPubKey == null){
@@ -121,11 +122,13 @@ public class LugChatClient {
 						if(message.getJsonObject("message").getString("type").equalsIgnoreCase("response")){
 							if(message.getJsonObject("message").getString("response-to").equalsIgnoreCase("hello")){
 								//grab key data from message
-								String encodedServerKey = message.getJsonObject("message").getJsonObject("content").getString("pub-key");
+								String encodedServerKey = message.getJsonObject("message").getJsonObject("content").getString("server-key");
 								//decode into key and save as serverPubKey
 								try{
 									KeyFactory kfac = KeyFactory.getInstance("RSA");
 									serverPubKey = kfac.generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(encodedServerKey)));
+									serverVerifier = Signature.getInstance("SHA512withRSA");
+									serverVerifier.initVerify(serverPubKey);
 									//delete message from messageQueue
 									messageQueue.remove(i);
 									//break the for loop
@@ -152,11 +155,20 @@ public class LugChatClient {
 					// System.out.print("\n>");
 					//pop a message
 					JsonObject message = messageQueue.remove(0);
+					//verify sig
+					boolean sigCheck = false;
+					try{
+						serverVerifier.update(message.getJsonObject("message").toString().getBytes());
+						sigCheck = serverVerifier.verify(Base64.getDecoder().decode(message.getString("sig")));
+					} catch(SignatureException e){
+						System.out.println("exception when verifying signature: "+e);
+					}
 					//figure out type
 					String type = message.getJsonObject("message").getString("type");
 					//run appropriate method
 					System.out.println("Message:");
 					System.out.println(message);
+					System.out.println("Verified: "+sigCheck);
 					System.out.println("---");
 					System.out.print("\n>");
 				}
@@ -265,11 +277,11 @@ public class LugChatClient {
 			Thread pmoqThread = new Thread(){ public void run(){ processMessageOutQueue(messageOutQueue,out); }};
 			//join threads with shared reader/writer/stream objects
 			psmThread.start();
-			// pmqThread.start();
+			pmqThread.start();
 			pmoqThread.start();
 			puiThread.start();
 			psmThread.join();
-			// pmqThread.join();
+			pmqThread.join();
 			puiThread.join();
 			pmoqThread.join();
 		} catch(Exception e){
