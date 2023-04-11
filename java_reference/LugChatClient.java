@@ -108,17 +108,58 @@ public class LugChatClient {
 	}
 
 	public static void processMessageQueue(Vector<JsonObject> messageQueue){
+		// System.out.println("Beginning processing message queue thread.");
+		// System.out.print("\n>");
+		PublicKey serverPubKey = null;
 		while(notStopping){
 			if(messageQueue.size()>0){
-				//pop a message
-				JsonObject message = messageQueue.remove(0);
-				//figure out type
-				String type = message.getJsonObject("message").getString("type");
-				//run appropriate method
-				System.out.println("Message:");
-				System.out.println(message);
-				System.out.println("---");
-				System.out.println(">");
+				if(serverPubKey == null){
+					// System.out.println("No server key set. Checking messages for valid server key in hello response.");
+					// System.out.print("\n>");
+					for(int i=0;i<messageQueue.size();i++){
+						JsonObject message = messageQueue.get(i);
+						if(message.getJsonObject("message").getString("type").equalsIgnoreCase("response")){
+							if(message.getJsonObject("message").getString("response-to").equalsIgnoreCase("hello")){
+								//grab key data from message
+								String encodedServerKey = message.getJsonObject("message").getJsonObject("content").getString("pub-key");
+								//decode into key and save as serverPubKey
+								try{
+									KeyFactory kfac = KeyFactory.getInstance("RSA");
+									serverPubKey = kfac.generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(encodedServerKey)));
+									//delete message from messageQueue
+									messageQueue.remove(i);
+									//break the for loop
+									break;
+								} catch(Exception e){
+									throw new RuntimeException("Error processing server public key", e);
+								}
+							}
+						}
+					}
+					if(serverPubKey==null){
+						//looked through all the messages, but didn't find a hello response, sleep
+						//until we get a new message and try again.
+						try{
+							synchronized(messageQueue){
+								messageQueue.wait(2000);
+							}
+						} catch(InterruptedException ie){
+							//timeout exception is OK, will just loop around
+						}
+					}
+				} else {
+					// System.out.println("Server key found. Processing message.");
+					// System.out.print("\n>");
+					//pop a message
+					JsonObject message = messageQueue.remove(0);
+					//figure out type
+					String type = message.getJsonObject("message").getString("type");
+					//run appropriate method
+					System.out.println("Message:");
+					System.out.println(message);
+					System.out.println("---");
+					System.out.print("\n>");
+				}
 			} else {
 				try{
 					synchronized(messageQueue){
@@ -205,19 +246,30 @@ public class LugChatClient {
 			notStopping = true;
 			Vector<JsonObject> messageQueue = new Vector<JsonObject>();
 			Vector<JsonObject> messageOutQueue = new Vector<JsonObject>();
+			//make hello message for the first thing in messageOutQueue
+			JsonObject helloMsg = makeMessage(
+				makeMessageDataObject(
+					"hello", //type
+					args[2], //nick
+					makeHelloMessage(Base64.getEncoder().encodeToString(keypair.getPublic().getEncoded())) //content
+				),
+				sig);
+			messageOutQueue.add(helloMsg);
 			//start thread for parsing server messages
 			Thread psmThread = new Thread(){ public void run(){ parseServerMessages(in,messageQueue); }};
-			psmThread.start();
 			//start thread for handling user input
 			Thread puiThread = new Thread(){ public void run(){ processUserInput(scan,messageOutQueue,args[2], sig); }};
 			//start thread for processing INCOMING messages
 			Thread pmqThread = new Thread(){ public void run(){ processMessageQueue(messageQueue); }};
 			//start thread for processing OUTGOING messages
 			Thread pmoqThread = new Thread(){ public void run(){ processMessageOutQueue(messageOutQueue,out); }};
-			pmoqThread.start();
 			//join threads with shared reader/writer/stream objects
+			psmThread.start();
+			// pmqThread.start();
+			pmoqThread.start();
 			puiThread.start();
 			psmThread.join();
+			// pmqThread.join();
 			puiThread.join();
 			pmoqThread.join();
 		} catch(Exception e){
