@@ -13,6 +13,9 @@ export default class UserSocket extends EventEmitter {
   /** @type {WebSocket} */
   #ws;
 
+  /** @type {string} */
+  #pvtKey;
+
   /** @type {User} */
   user;
 
@@ -21,9 +24,10 @@ export default class UserSocket extends EventEmitter {
    * @param {WebSocket} ws websocket that connected
    * @param {import('http').IncomingMessage} req figure out where this comes from
    */
-  constructor(ws, req) {
+  constructor(ws, req, pvtKey) {
     super();
     this.#ws = ws;
+    this.#pvtKey = pvtKey;
     log('req', req.socket.remoteAddress);
 
     // default take the remoteaddress, which could be a load balancer
@@ -71,7 +75,7 @@ export default class UserSocket extends EventEmitter {
         response: AccRej.reject,
         type: 'foo',
       };
-      await this.#ws.send(JSON.stringify(Protocol.wrapResponse(sm)));
+      await this.#ws.send(JSON.stringify(Protocol.wrapResponse(sm, this.#pvtKey)));
       return;
     }
 
@@ -112,7 +116,7 @@ export default class UserSocket extends EventEmitter {
     };
 
     // wrap and send
-    await this.#ws.send(JSON.stringify(Protocol.wrapResponse(serverResponse)));
+    await this.#ws.send(JSON.stringify(Protocol.wrapResponse(serverResponse, this.#pvtKey)));
 
     // broadcast orig message to all clients
     this.emit('messageReceived', mw);

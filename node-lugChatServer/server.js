@@ -12,10 +12,13 @@ const log = debug('lugchat:nodeServer');
 const SERVER_CERT = process.env.SERVER_CERT || 'missing';
 const SERVER_KEY = process.env.SERVER_KEY || 'missing';
 
-const server = createServer({
-  cert: readFileSync(SERVER_CERT),
-  key: readFileSync(SERVER_KEY),
-});
+// TODO: checking for files
+const cert = readFileSync(SERVER_CERT);
+const key = readFileSync(SERVER_KEY);
+
+// HTTPS server
+const server = createServer({ cert, key });
+// WebSocket Server
 const wss = new WebSocketServer({ server });
 
 /**
@@ -38,7 +41,7 @@ const trackedUsers = [];
 // connection, listening, error
 wss.on('connection', (ws, req) => {
   log('connection seen', req.socket.remoteAddress);
-  const us = new UserSocket(ws, req);
+  const us = new UserSocket(ws, req, key);
   // ensure good messages get re-broadcast to everyone
   us.on('messageReceived', (mw) => {
     broadcastMessage(mw);

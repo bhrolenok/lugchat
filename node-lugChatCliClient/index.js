@@ -3,6 +3,7 @@ import blessed from 'blessed';
 import contrib from 'blessed-contrib';
 import { WebSocket } from 'ws';
 import { Protocol, Utils } from 'node-lugchat-common';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -13,10 +14,28 @@ dotenv.config();
 const ENV_NICK = process.env.lugchat_nick || 'missing';
 const ENV_URI = process.env.lugchat_uri || 'missing';
 
+const PRIVATE_KEY_FILE = process.env.lugchat_privatekey_file || 'missing';
+const PUBLIC_KEY_FILE = process.env.lugchat_pubkey_file || 'missing';
+
+const ptStat = fs.statSync(PRIVATE_KEY_FILE);
+const pbStat = fs.statSync(PUBLIC_KEY_FILE);
+
+let pvtKeyStr = null;
+let pubKeyStr = null;
+
+if (Utils.isntNull(ptStat) && ptStat.isFile() &&
+  Utils.isntNull(pbStat) && pbStat.isFile()) {
+    pvtKeyStr = fs.readFileSync(PRIVATE_KEY_FILE, { encoding: 'utf-8'});
+    pubKeyStr = fs.readFileSync(PUBLIC_KEY_FILE, { encoding: 'utf-8' });
+} else {
+  console.log('did not locate key material');
+  process.exit(1);
+}
+
 const screen = blessed.screen({ smartCSR: true });
 
-console.log(`rows ${screen.rows} cols ${screen.cols}`);
-// process.exit(1);
+// TODO: figure grid cols out from actual cols!
+// console.log(`rows ${screen.rows} cols ${screen.cols}`);
 
 // eslint-disable-next-line new-cap
 const screenGrid = new contrib.grid({ rows: 12, cols: 12, screen });
@@ -29,6 +48,30 @@ const chatLog = screenGrid.set(0, 0, 6, 12, contrib.log, {
   tags: true,
   border: { type: 'line', fg: 'cyan' },
 });
+
+let lastDay = 0;
+
+/**
+ * appends new message onto the chatLog
+ * @param {Protocol.BaseMessage} bm
+ * @param {string} msg what to add
+ * @param {string} [color] optional color to decorate name with
+ */
+function addChat(bm, msg, color) {
+  let c = color;
+  if (Utils.isNull(color)) {
+    c = 'cyan';
+  }
+  const d = new Date(bm.time);
+  const day = d.getDate();
+  let dateStr = '';
+  if (day !== lastDay) {
+    lastDay = day;
+    dateStr += `${d.toDateString()} `;
+  }
+  dateStr += d.toTimeString().substring(0, 8);
+  chatLog.log(`{${c}-fg}${bm.nick}{/${c}-fg} [${dateStr}] - ${msg}`);
+}
 
 const textInput = screenGrid.set(6, 0, 3, 12, blessed.textarea, {
   label: 'Say',
@@ -106,7 +149,7 @@ ws.on('message', async (data) => {
       // /** @type {Protocol.HelloMessage} */
       // const hm = cm.content;
       // TODO: store nick/pubKey
-      chatLog.log(`{green-fg}${cm.nick}{/green-fg} - logged on`);
+      addChat(cm, 'logged on', 'green');
       break;
     }
     case 'post': {
@@ -114,7 +157,7 @@ ws.on('message', async (data) => {
       const cm = wrapper.message;
       /** @type {Protocol.PostMessage} */
       const pm = cm.content;
-      chatLog.log(`{red-fg}${cm.nick}{/red-fg} - ${pm.postContent}`);
+      addChat(cm, pm.postContent);
       break;
     }
     default: {
@@ -126,7 +169,7 @@ ws.on('message', async (data) => {
 
 ws.on('open', async () => {
   log.log('connection opened');
-  // senc login event
+  // send login event
   const message = {
     type: 'hello',
     nick,
@@ -136,7 +179,7 @@ ws.on('open', async () => {
     },
   };
 
-  await ws.send(JSON.stringify(Protocol.wrapResponse(message)));
+  await ws.send(JSON.stringify(Protocol.wrapResponse(message, pvtKeyStr)));
   log.log('login sent');
 });
 
@@ -155,7 +198,7 @@ textInput.key('enter', async () => {
     content: {
       postContent: message,
     },
-  })));
+  }, pvtKeyStr)));
   log.log('message sent');
 });
 

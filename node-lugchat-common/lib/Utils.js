@@ -38,6 +38,18 @@ function md5(str) {
   return crypto.createHash('md5').update(str).digest('hex').toString();
 }
 
+/**
+ * signs the given content with the private key
+ * @param {*} privateKey string contents of the private key
+ * @param {*} content string to sign
+ */
+function sign(privateKey, content) {
+  const s = crypto.createSign('SHA256');
+  s.write(content);
+  s.end();
+  return s.sign(privateKey, 'hex');
+}
+
 export {
-  delay, md5, isNull, isntNull,
+  delay, md5, isNull, isntNull, sign,
 };

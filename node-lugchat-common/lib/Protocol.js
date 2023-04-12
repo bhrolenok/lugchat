@@ -1,4 +1,4 @@
-import { md5 } from './Utils.js';
+import { sign } from './Utils.js';
 
 /**
  * @enum {string}
@@ -105,16 +105,16 @@ const UserStatus = {
 
 /**
  * wraps the server message with the sig
- * @param {BaseMessage} m  can be either a ServerMessage or ClientMessage
+ * @param {BaseMessage} m can be either a ServerMessage or ClientMessage
+ * @param {string} signingKey pem key to sign the message with
  * @returns {MessageWrapper} wrapped message
  */
 function wrapResponse(m, signingKey) {
-  // TODO: sign
-  const hash = md5(m);
+  const sig = sign(signingKey, JSON.stringify(m));
   /** @type {MessageWrapper} */
   const mw = {
     message: m,
-    sig: hash,
+    sig,
   };
   return mw;
 }
