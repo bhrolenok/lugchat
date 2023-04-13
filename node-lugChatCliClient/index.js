@@ -23,15 +23,14 @@ const pbStat = fs.statSync(PUBLIC_KEY_FILE);
 let pvtKeyStr = null;
 let pubKeyStr = null;
 
-if (Utils.isntNull(ptStat) && ptStat.isFile() &&
-  Utils.isntNull(pbStat) && pbStat.isFile()) {
-    pvtKeyStr = fs.readFileSync(PRIVATE_KEY_FILE, { encoding: 'utf-8'});
-    pubKeyStr = fs.readFileSync(PUBLIC_KEY_FILE, { encoding: 'utf-8' });
+if (Utils.isntNull(ptStat) && ptStat.isFile()
+  && Utils.isntNull(pbStat) && pbStat.isFile()) {
+  pvtKeyStr = fs.readFileSync(PRIVATE_KEY_FILE, { encoding: 'utf-8' });
+  pubKeyStr = fs.readFileSync(PUBLIC_KEY_FILE, { encoding: 'utf-8' });
 } else {
   console.log('did not locate key material');
   process.exit(1);
 }
-
 const screen = blessed.screen({ smartCSR: true });
 
 // TODO: figure grid cols out from actual cols!
@@ -113,9 +112,19 @@ const uri = ENV_URI;
 
 log.log(`user ${nick} connecting to ${uri}`);
 
+// WebSocket Connection
 const ws = new WebSocket(uri, { rejectUnauthorized: false });
 
+/**
+ * sends a clientmessage to the server
+ * @param {ClientMessage} message what to ship to the server
+ */
+async function send(message) {
+  await ws.send(JSON.stringify(Protocol.wrapResponse(message, pvtKeyStr)));
+}
+// Handle Errors
 ws.on('error', (err) => {
+  // TODO: get smarter about error type
   log.log(err.message);
   return process.exit(1);
 });
@@ -167,6 +176,7 @@ ws.on('message', async (data) => {
   }
 });
 
+// first connect, send login and get user list
 ws.on('open', async () => {
   log.log('connection opened');
   // send login event
@@ -175,30 +185,32 @@ ws.on('open', async () => {
     nick,
     time: new Date().getTime(),
     content: {
-      publicKey: '123',
+      publicKey: pubKeyStr,
     },
   };
 
-  await ws.send(JSON.stringify(Protocol.wrapResponse(message, pvtKeyStr)));
+  await send(message);
   log.log('login sent');
 });
 
 textInput.key('enter', async () => {
   // TODO: empty value check
-  const message = textInput.getValue();
-  log.log(`textarea enter pressed, message '${message}'`);
+  const postContent = textInput.getValue();
+  log.log(`textarea enter pressed, message '${postContent}'`);
   // silly way to clear and keep box focus
   textInput.clearValue();
   textInput.focus();
-  log.log('sending message');
-  await ws.send(JSON.stringify(Protocol.wrapResponse({
+  /** @type {Protocol.PostMessage} */
+  const message = {
     type: 'post',
     time: new Date().getTime(),
     nick,
     content: {
-      postContent: message,
+      postContent,
     },
-  }, pvtKeyStr)));
+  };
+  log.log('sending message');
+  await send(message);
   log.log('message sent');
 });
 

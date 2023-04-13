@@ -4,7 +4,7 @@
 
 * install node 16+ and npm
 * `npm install` from this directory
-* generate a keypair to use
+* generate a signing keypair to use
   * `openssl genrsa -out private.pem 4096`
   * `openssl rsa -in private.pem -pubout -out public.pem`
 * create .env file (see next section)

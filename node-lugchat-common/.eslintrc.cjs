@@ -17,5 +17,13 @@ module.exports = {
   ],
   rules: {
     'import/extensions': ['error', 'ignorePackages'],
+    'import/no-extraneous-dependencies': [
+      'error',
+      {
+        devDependencies: [
+          '**/*-tests.js',
+        ],
+      },
+    ],
   },
 };

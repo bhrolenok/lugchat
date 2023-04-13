@@ -1,4 +1,4 @@
-import { sign } from './Utils.js';
+import { sign, verify } from './Utils.js';
 
 /**
  * @enum {string}
@@ -119,6 +119,23 @@ function wrapResponse(m, signingKey) {
   return mw;
 }
 
+/**
+ * Verifies a given message with the public key
+ * @param {MessageWrapper} mw message to verify
+ * @param {string} publicKey key to verify with
+ * @returns {boolean} if the message was legit
+ */
+function verifyMessage(mw, publicKey) {
+  const msgStr = JSON.stringify(mw.message);
+  return verify(publicKey, mw.sig, msgStr);
+}
+
 export {
-  AccRej, ConnectionStatus, MessageType, ServerMessageReason, UserStatus, wrapResponse,
+  AccRej,
+  ConnectionStatus,
+  MessageType,
+  ServerMessageReason,
+  UserStatus,
+  verifyMessage,
+  wrapResponse,
 };

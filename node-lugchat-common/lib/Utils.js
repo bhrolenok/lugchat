@@ -27,29 +27,31 @@ const delay = (ms) => new Promise((resolve) => {
 });
 
 /**
- * MD5 Hash
- * @param {Object|string} str pass an object (which will be stringified) or string
- * @returns md5 hash
- */
-function md5(str) {
-  if (typeof str === 'object') {
-    return crypto.createHash('md5').update(JSON.stringify(str)).digest('hex').toString();
-  }
-  return crypto.createHash('md5').update(str).digest('hex').toString();
-}
-
-/**
  * signs the given content with the private key
- * @param {*} privateKey string contents of the private key
- * @param {*} content string to sign
+ * @param {string | crypto.KeyObject} privateKey string contents of the private key
+ * @param {string} content string to sign
  */
 function sign(privateKey, content) {
   const s = crypto.createSign('SHA256');
   s.write(content);
   s.end();
-  return s.sign(privateKey, 'hex');
+  return s.sign(privateKey, 'base64');
+}
+
+/**
+ * uses the public key to verify the string passed in
+ * @param {string | crypto.KeyObject} pubKey key to use
+ * @param {string} sig signature to verify
+ * @param {string} str content to verify
+ * @returns {boolean} true if sig checked out
+ */
+function verify(pubKey, sig, str) {
+  const v = crypto.createVerify('SHA256');
+  v.write(str);
+  v.end();
+  return v.verify(pubKey, sig, 'base64');
 }
 
 export {
-  delay, md5, isNull, isntNull, sign,
+  delay, isNull, isntNull, sign, verify,
 };
