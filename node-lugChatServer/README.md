@@ -22,7 +22,7 @@ SERVER_CERT=cert.pem
 # path to the private key
 SERVER_KEY=key.pem
 # key used to sign message responses
-SIGNING_PRIVATE_KEY=pk.pem
+SIGNING_PRIVATE_KEY=private.pem
 # public key (pair of the private key) for verifying
-SIGNING_PUBLIC_KEY=pub.pem
+SIGNING_PUBLIC_KEY=public.pem
 ```
