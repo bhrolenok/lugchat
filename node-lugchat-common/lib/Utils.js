@@ -32,7 +32,7 @@ const delay = (ms) => new Promise((resolve) => {
  * @param {string} content string to sign
  */
 function sign(privateKey, content) {
-  const s = crypto.createSign('SHA256');
+  const s = crypto.createSign('SHA512');
   s.write(content);
   s.end();
   return s.sign(privateKey, 'base64');
@@ -46,7 +46,7 @@ function sign(privateKey, content) {
  * @returns {boolean} true if sig checked out
  */
 function verify(pubKey, sig, str) {
-  const v = crypto.createVerify('SHA256');
+  const v = crypto.createVerify('SHA512');
   v.write(str);
   v.end();
   return v.verify(pubKey, sig, 'base64');
