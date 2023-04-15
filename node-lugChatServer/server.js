@@ -61,7 +61,7 @@ function broadcastMessage(mw) {
 }
 
 /** @type {[UserSocket]} */
-const trackedUsers = [];
+let trackedUsers = [];
 
 // connection, listening, error
 wss.on('connection', (ws, req) => {
@@ -70,6 +70,12 @@ wss.on('connection', (ws, req) => {
   // ensure good messages get re-broadcast to everyone
   us.on('messageReceived', (mw) => {
     broadcastMessage(mw);
+  });
+  // remove object from tracked users
+  us.on('disconnected', () => {
+    log('removing user for disconnect timeout', us.user.nick);
+    trackedUsers = trackedUsers.filter((u) => us.user !== u.user);
+    log('remaining users', trackedUsers.map((u) => u.nick));
   });
   // TODO: cleanup gone users
   trackedUsers.push(us);

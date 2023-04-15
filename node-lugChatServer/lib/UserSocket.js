@@ -9,6 +9,10 @@ const log = debug('lugchat:nodeServer');
 
 /** @typedef {import('ws').WebSocket} WebSocket */
 
+/**
+ * @emits UserSocket#messageReceived when a valid message from the client was handled
+ * @emits USerSocket#disconnected when socket detects via ping/pong that the clients gone
+ */
 export default class UserSocket extends EventEmitter {
   /** @type {WebSocket} */
   #ws;
@@ -22,12 +26,16 @@ export default class UserSocket extends EventEmitter {
   /** @type {Protocol.User} */
   user;
 
+  /** @type {NodeJS.Timer} */
+  #timer;
+
   /**
    * Create a new object to handle the requests coming in from this user
    * @param {WebSocket} ws websocket that connected
    * @param {import('http').IncomingMessage} req figure out where this comes from
    * @param {string} svrPvtKey key for signing messages
    * @param {string} svrPubKey key for sending clients
+   * @event USerSocket#disconnected
    */
   constructor(ws, req, svrPvtKey, svrPubKey) {
     super();
@@ -55,6 +63,21 @@ export default class UserSocket extends EventEmitter {
     this.handleMessage = this.handleMessage.bind(this);
 
     ws.on('message', this.handleMessage);
+    // special ws response used for keeping the connection open
+    ws.on('pong', () => {
+      this.user.connStatus = ConnectionStatus.connected;
+    });
+    // setup interval for requesting pong response every 30s
+    this.#timer = setInterval(() => {
+      if (this.user.connStatus === ConnectionStatus.disconnected) {
+        ws.terminate();
+        clearInterval(this.#timer);
+        this.emit('disconnected');
+      }
+      this.user.connStatus = ConnectionStatus.disconnected;
+      ws.ping();
+    }, 30 * 1000);
+
     ws.on('error', (err) => {
       log('socket failure', err);
     });
@@ -66,6 +89,7 @@ export default class UserSocket extends EventEmitter {
   /**
    * handles a message receieved from the client
    * @param {string} rawMessage the message recieved in string form
+   * @event UserSocket#messageReceived
    */
   // eslint-disable-next-line class-methods-use-this
   async handleMessage(rawMessage) {
