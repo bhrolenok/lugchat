@@ -1,4 +1,5 @@
-import { sign, verify } from './Utils.js';
+// @ts-check
+import { md5, sign, verify } from './Utils.js';
 
 /**
  * @enum {string}
@@ -11,6 +12,8 @@ const MessageType = {
   history: 'history',
   reply: 'reply',
   disconnct: 'disconnect',
+  response: 'response',
+  unknown: 'unknown',
 };
 
 /**
@@ -79,6 +82,7 @@ const UserStatus = {
 /**
  * @typedef {Object} HelloMessage
  * @property {string} publicKey
+ * @property {string} keyHash
  */
 
 /**
@@ -88,13 +92,16 @@ const UserStatus = {
 
 /** all transmitted messages are wrapped in this
  * @typedef {Object} MessageWrapper
- * @property {BaseMessage} message message that was transmitted
- * @property {string} sig Base64?
+ * @property {ClientMessage | ServerMessage} message message that was transmitted
+ * @property {string} sig Base64
+ * @property {string} keyHash
+ * @property {number} protocolVersion
  */
 
 /**
  * @typedef {Object} ServerMessageType
- * @property {MessageType} responseTo what kind of message is the server replying to
+ * @property {MessageType} responseToType what kind of message is the server replying to
+ * @property {string} origSig the signature of the message the server is responding to
  * @property {AccRej} response did server handle/retain the clients message
  * @property {ServerMessageReason} [reason] if server didnt, why?
  */
@@ -105,7 +112,7 @@ const UserStatus = {
 
 /**
  * wraps the server message with the sig
- * @param {BaseMessage} m can be either a ServerMessage or ClientMessage
+ * @param {ClientMessage | ServerMessage} m can be either a ServerMessage or ClientMessage
  * @param {string} signingKey pem key to sign the message with
  * @returns {MessageWrapper} wrapped message
  */
@@ -115,6 +122,8 @@ function wrapResponse(m, signingKey) {
   const mw = {
     message: m,
     sig,
+    keyHash: md5(signingKey),
+    protocolVersion: 1,
   };
   return mw;
 }

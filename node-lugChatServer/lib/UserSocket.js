@@ -1,6 +1,7 @@
+// @ts-check
 import debug from 'debug';
 import EventEmitter from 'events';
-import { Protocol } from 'node-lugchat-common';
+import { Utils, Protocol } from 'node-lugchat-common';
 
 const {
   AccRej, ConnectionStatus, UserStatus, ServerMessageReason,
@@ -11,7 +12,8 @@ const log = debug('lugchat:nodeServer');
 
 /**
  * @emits UserSocket#messageReceived when a valid message from the client was handled
- * @emits USerSocket#disconnected when socket detects via ping/pong that the clients gone
+ * @emits UserSocket#disconnected when socket detects via ping/pong that the clients gone
+ * @emits UserSocket#userUpdate when any change to the user is detected
  */
 export default class UserSocket extends EventEmitter {
   /** @type {WebSocket} */
@@ -35,7 +37,7 @@ export default class UserSocket extends EventEmitter {
    * @param {import('http').IncomingMessage} req figure out where this comes from
    * @param {string} svrPvtKey key for signing messages
    * @param {string} svrPubKey key for sending clients
-   * @event USerSocket#disconnected
+   * @event UserSocket#disconnected
    */
   constructor(ws, req, svrPvtKey, svrPubKey) {
     super();
@@ -44,17 +46,21 @@ export default class UserSocket extends EventEmitter {
     this.#svrPubKey = svrPubKey;
 
     // default take the remoteaddress, which could be a load balancer
-    let ipAddr = req.socket.remoteAddress;
+    let ipAddr = req.socket.remoteAddress || '';
 
     // if forwarded header is set, lets take that instead
-    if (req.headers['x-forwarded-for'] !== undefined) {
-      ipAddr = req.headers['x-forwarded-for'].split(',')[0].trim();
+    const xForward = req.headers['x-forwarded-for'];
+    if (Utils.isntNull(xForward)) {
+      // coersion of possible string[] to string
+      ipAddr = `${xForward}`.split(',')[0].trim();
     }
 
     this.user = {
       ip: ipAddr,
       userStatus: UserStatus.online,
       connStatus: ConnectionStatus.connected,
+      nick: '',
+      publicKey: '',
     };
 
     log('new connection', this.user);
@@ -87,46 +93,63 @@ export default class UserSocket extends EventEmitter {
   }
 
   /**
+   * Sends the reply to the client
+   * @param {Protocol.ServerMessage} sm message to reply with
+   */
+  async #reply(sm) {
+    const mw = Protocol.wrapResponse(sm, this.#svrPvtKey);
+    log('server reply', mw);
+    return this.#ws.send(JSON.stringify(mw));
+  }
+
+  /**
    * handles a message receieved from the client
    * @param {string} rawMessage the message recieved in string form
    * @event UserSocket#messageReceived
    */
   // eslint-disable-next-line class-methods-use-this
   async handleMessage(rawMessage) {
-    /** @type {MessageWrapper} */
-    let mw = null;
+    /** @type {Protocol.MessageWrapper} */
+    // @ts-ignore
+    let mw = {};
     try {
       mw = JSON.parse(rawMessage);
     } catch (err) {
       log('error unmarshalling record');
-      /** @type {ServerMessage} */
+      /** @type {Protocol.ServerMessage} */
       const sm = {
         reason: ServerMessageReason.format,
-        time: new Date().getTime(),
+        responseToType: Protocol.MessageType.unknown,
+        origSig: '',
+        time: Date.now(),
         response: AccRej.reject,
-        type: 'unknown',
+        type: Protocol.MessageType.response,
+        content: null,
       };
-      await this.#ws.send(JSON.stringify(Protocol.wrapResponse(sm, this.#svrPvtKey)));
+      await this.#reply(sm);
       return;
     }
 
     log('MESSAGE', mw);
 
-    const { message } = mw;
+    const cm = /** @type {Protocol.ClientMessage} */ (mw.message);
 
     // do message verification
     if (this.user.connStatus === Protocol.ConnectionStatus.loggedIn) {
       if (!Protocol.verifyMessage(mw, this.user.publicKey)) {
         // failed
         log('sig verification failed');
-        /** @type {ServerMessage} */
+        /** @type {Protocol.ServerMessage} */
         const sm = {
           reason: ServerMessageReason.signature,
-          time: new Date().getTime(),
+          time: Date.now(),
           response: AccRej.reject,
-          type: message.type,
+          type: Protocol.MessageType.response,
+          responseToType: cm.type,
+          origSig: mw.sig,
+          content: {},
         };
-        await this.#ws.send(JSON.stringify(Protocol.wrapResponse(sm, this.#svrPvtKey)));
+        await this.#reply(sm);
         return;
       }
       log('message verified');
@@ -134,45 +157,50 @@ export default class UserSocket extends EventEmitter {
 
     const serverContentResponse = {};
 
-    switch (message.type) {
+    switch (cm.type) {
       case 'hello': {
         /** @type {Protocol.HelloMessage} */
-        const hello = message.content;
+        const hello = cm.content;
         this.user.connStatus = ConnectionStatus.loggedIn;
         this.user.userStatus = UserStatus.online;
         this.user.publicKey = hello.publicKey;
-        this.user.nick = message.nick;
+        this.user.nick = cm.nick;
 
         // TODO: can verify the login message now!
 
-        serverContentResponse.serverKey = this.#svrPvtKey;
+        serverContentResponse.serverKey = this.#svrPubKey;
         log('user logged in', this.user.nick);
         break;
       }
       case 'post': {
         // TODO: login check
-        /** @type {PostMessage} */
-        const post = message.content;
+        /** @type {Protocol.PostMessage} */
+        const post = cm.content;
         log('post', post.postContent);
         break;
       }
       default:
-        log('unknown message type', message.type);
+        log('unknown message type', cm.type);
     }
 
-    /** @type {serverResponse} */
+    /** @type {Protocol.ServerMessage} */
     const serverResponse = {
-      type: 'response',
-      responseTo: message.type,
+      type: Protocol.MessageType.response,
+      responseToType: cm.type,
       response: AccRej.accept,
-      time: new Date().getTime(),
+      time: Date.now(),
+      origSig: mw.sig,
       content: serverContentResponse,
     };
 
     // wrap and send
-    await this.#ws.send(JSON.stringify(Protocol.wrapResponse(serverResponse, this.#svrPvtKey)));
+    await this.#reply(serverResponse);
 
     // broadcast orig message to all clients
+    /**
+     * @event UserSocket#messageReceived
+     * @type {Protocol.MessageWrapper}
+     */
     this.emit('messageReceived', mw);
     log('reply sent');
   }

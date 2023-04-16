@@ -39,6 +39,18 @@ function sign(privateKey, content) {
 }
 
 /**
+ * hash the given string with md5 into hex format
+ * @param {string|object} str if object, JSON.stringify is called prior to sum
+ * @returns {string} hex format md5 sum
+ */
+function md5(str) {
+  if (typeof str === 'object') {
+    return crypto.createHash('md5').update(JSON.stringify(str)).digest('hex').toString();
+  }
+  return crypto.createHash('md5').update(str).digest('hex').toString();
+}
+
+/**
  * uses the public key to verify the string passed in
  * @param {string | crypto.KeyObject} pubKey key to use
  * @param {string} sig signature to verify
@@ -53,5 +65,5 @@ function verify(pubKey, sig, str) {
 }
 
 export {
-  delay, isNull, isntNull, sign, verify,
+  delay, isNull, isntNull, md5, sign, verify,
 };

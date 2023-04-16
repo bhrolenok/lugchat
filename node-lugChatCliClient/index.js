@@ -148,7 +148,7 @@ ws.on('message', async (data) => {
   switch (message.type) {
     case 'response': {
       /** @type {ServerMessage} */
-      const sm = wrapper.message;
+      // const sm = wrapper.message;
       // TODO: probably should get rid of input content here if its a post reply!
       break;
     }
