@@ -58,9 +58,10 @@ const UserStatus = {
  * @typedef {Object} User
  * @property {string} nick
  * @property {string} publicKey
- * @property {string} ip
+ * @property {string} ip best effort address we have for the user
  * @property {ConnectionStatus} connStatus
  * @property {UserStatus} userStatus
+ * @property {boolean} timedOut if true the users ping failed to respond
  */
 
 /**
@@ -83,6 +84,12 @@ const UserStatus = {
  * @typedef {Object} HelloMessage
  * @property {string} publicKey
  * @property {string} keyHash
+ */
+
+/**
+ * @typedef {Object} SubscribeMessage
+ * @property {string} publicKey clients public key
+ * @property {number} lastClientTime can be clients last messsage time, or 0 if never
  */
 
 /**

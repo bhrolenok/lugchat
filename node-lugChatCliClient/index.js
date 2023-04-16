@@ -1,9 +1,12 @@
+// @ts-check
 import * as dotenv from 'dotenv';
 import blessed from 'blessed';
 import contrib from 'blessed-contrib';
 import { WebSocket } from 'ws';
 import { Protocol, Utils } from 'node-lugchat-common';
 import fs from 'fs';
+
+// const { MessageType } = Protocol;
 
 dotenv.config();
 
@@ -117,7 +120,7 @@ const ws = new WebSocket(uri, { rejectUnauthorized: false });
 
 /**
  * sends a clientmessage to the server
- * @param {ClientMessage} message what to ship to the server
+ * @param {Protocol.ClientMessage} message what to ship to the server
  */
 async function send(message) {
   await ws.send(JSON.stringify(Protocol.wrapResponse(message, pvtKeyStr)));
@@ -150,11 +153,12 @@ ws.on('message', async (data) => {
       /** @type {ServerMessage} */
       // const sm = wrapper.message;
       // TODO: probably should get rid of input content here if its a post reply!
+      // const { responseToType } = sm;
+      // TODO: handle history, users, errors
       break;
     }
     case 'hello': {
-      /** @type {Protocol.ClientMessage} */
-      const cm = wrapper.message;
+      const cm = /** @type {Protocol.ClientMessage} */ (wrapper.message);
       // /** @type {Protocol.HelloMessage} */
       // const hm = cm.content;
       // TODO: store nick/pubKey
@@ -162,8 +166,7 @@ ws.on('message', async (data) => {
       break;
     }
     case 'post': {
-      /** @type {Protocol.ClientMessage} */
-      const cm = wrapper.message;
+      const cm = /** @type {Protocol.ClientMessage} */ (wrapper.message);
       /** @type {Protocol.PostMessage} */
       const pm = cm.content;
       addChat(cm, pm.postContent);
@@ -191,6 +194,23 @@ ws.on('open', async () => {
 
   await send(message);
   log.log('login sent');
+
+  /** @type {Protocol.SubscribeMessage} */
+  const sub = {
+    publicKey: pubKeyStr,
+    lastClientTime: 0,
+  };
+
+  // subscribe
+  const subMessage = {
+    type: 'subscribe',
+    nick,
+    time: Date.now(),
+    content: sub,
+  };
+
+  await send(subMessage);
+  log.log('subscribed');
 });
 
 textInput.key('enter', async () => {
@@ -203,7 +223,7 @@ textInput.key('enter', async () => {
   /** @type {Protocol.PostMessage} */
   const message = {
     type: 'post',
-    time: new Date().getTime(),
+    time: Date.now(),
     nick,
     content: {
       postContent,

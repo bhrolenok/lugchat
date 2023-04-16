@@ -1,5 +1,6 @@
 // @ts-check
 import debug from 'debug';
+import { subscribe } from 'diagnostics_channel';
 import EventEmitter from 'events';
 import { Utils, Protocol } from 'node-lugchat-common';
 
@@ -59,6 +60,7 @@ export default class UserSocket extends EventEmitter {
       ip: ipAddr,
       userStatus: UserStatus.online,
       connStatus: ConnectionStatus.connected,
+      timedOut: false,
       nick: '',
       publicKey: '',
     };
@@ -71,16 +73,18 @@ export default class UserSocket extends EventEmitter {
     ws.on('message', this.handleMessage);
     // special ws response used for keeping the connection open
     ws.on('pong', () => {
-      this.user.connStatus = ConnectionStatus.connected;
+      this.user.timedOut = false;
     });
     // setup interval for requesting pong response every 30s
     this.#timer = setInterval(() => {
-      if (this.user.connStatus === ConnectionStatus.disconnected) {
+      if (this.user.timedOut) {
+        this.user.userStatus = UserStatus.offline;
+        this.user.connStatus = ConnectionStatus.disconnected;
         ws.terminate();
         clearInterval(this.#timer);
         this.emit('disconnected');
       }
-      this.user.connStatus = ConnectionStatus.disconnected;
+      this.user.timedOut = true;
       ws.ping();
     }, 30 * 1000);
 
@@ -93,13 +97,82 @@ export default class UserSocket extends EventEmitter {
   }
 
   /**
+   * Sends a message to the client
+   * @param {Protocol.MessageWrapper} mw message to send
+   * @returns {Promise<boolean>} promise resolves true if the message was sent.
+   */
+  async send(mw) {
+    try {
+      await this.#ws.send(JSON.stringify(mw));
+    } catch (err) {
+      log('message send failure', err);
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * Sends the reply to the client
    * @param {Protocol.ServerMessage} sm message to reply with
    */
   async #reply(sm) {
     const mw = Protocol.wrapResponse(sm, this.#svrPvtKey);
     log('server reply', mw);
-    return this.#ws.send(JSON.stringify(mw));
+    return this.send(mw);
+  }
+
+  /**
+   * verifies the client message, sends server response if message was bad
+   * @param {Protocol.MessageWrapper} mw wrapper with sig
+   * @param {Protocol.MessageType} type type field from the sent message
+   * @returns {boolean} true if message was good, false if bad
+   */
+  #verify(mw, type) {
+    if (!Protocol.verifyMessage(mw, this.user.publicKey)) {
+      // failed
+      log('sig verification failed');
+      /** @type {Protocol.ServerMessage} */
+      const sm = {
+        reason: ServerMessageReason.signature,
+        time: Date.now(),
+        response: AccRej.reject,
+        type: Protocol.MessageType.response,
+        responseToType: type,
+        origSig: mw.sig,
+        content: {},
+      };
+      this.#reply(sm);
+      return false;
+    }
+    log('message verified');
+    return true;
+  }
+
+  /**
+   * Determins if the user is ok for messaging, sends response if user isnt logged in
+   * @param {Protocol.MessageWrapper} mw wrapper with sig
+   * @param {Protocol.MessageType} type type field from the sent message
+   * @returns {boolean} true if the user has passed keys and is good to take part
+   */
+  #loggedIn(mw, type) {
+    if (this.user.connStatus === ConnectionStatus.connected
+    || this.user.connStatus === ConnectionStatus.disconnected) {
+      // failed
+      log('message attempted while not logged in');
+      /** @type {Protocol.ServerMessage} */
+      const sm = {
+        reason: ServerMessageReason.access,
+        time: Date.now(),
+        response: AccRej.reject,
+        type: Protocol.MessageType.response,
+        responseToType: type,
+        origSig: mw.sig,
+        content: {},
+      };
+      this.#reply(sm);
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -134,25 +207,9 @@ export default class UserSocket extends EventEmitter {
 
     const cm = /** @type {Protocol.ClientMessage} */ (mw.message);
 
-    // do message verification
+    // do message verification if we have keys
     if (this.user.connStatus === Protocol.ConnectionStatus.loggedIn) {
-      if (!Protocol.verifyMessage(mw, this.user.publicKey)) {
-        // failed
-        log('sig verification failed');
-        /** @type {Protocol.ServerMessage} */
-        const sm = {
-          reason: ServerMessageReason.signature,
-          time: Date.now(),
-          response: AccRej.reject,
-          type: Protocol.MessageType.response,
-          responseToType: cm.type,
-          origSig: mw.sig,
-          content: {},
-        };
-        await this.#reply(sm);
-        return;
-      }
-      log('message verified');
+      this.#verify(mw, cm.type);
     }
 
     const serverContentResponse = {};
@@ -166,18 +223,33 @@ export default class UserSocket extends EventEmitter {
         this.user.publicKey = hello.publicKey;
         this.user.nick = cm.nick;
 
-        // TODO: can verify the login message now!
-
-        serverContentResponse.serverKey = this.#svrPubKey;
-        log('user logged in', this.user.nick);
+        // verify the message now that we have keys
+        if (this.#verify(mw, cm.type)) {
+          serverContentResponse.serverKey = this.#svrPubKey;
+          log('user logged in', this.user.nick);
+        }
         break;
       }
+      case 'subscribe': {
+        // login check
+        if (this.#loggedIn(mw, cm.type)) {
+          /** @type {Protocol.SubscribeMessage} */
+          const sub = cm.content;
+          log('subscribe', sub);
+          this.user.connStatus = ConnectionStatus.subscribed;
+          break;
+        }
+        return; // bail cause login wasnt present
+      }
       case 'post': {
-        // TODO: login check
-        /** @type {Protocol.PostMessage} */
-        const post = cm.content;
-        log('post', post.postContent);
-        break;
+        // login check
+        if (this.#loggedIn(mw, cm.type)) {
+          /** @type {Protocol.PostMessage} */
+          const post = cm.content;
+          log('post', post.postContent);
+          break;
+        }
+        return; // bail cause login wasnt present
       }
       default:
         log('unknown message type', cm.type);
