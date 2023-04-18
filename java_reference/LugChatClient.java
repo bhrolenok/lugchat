@@ -1,5 +1,6 @@
 // LugChatClient.java
 import java.util.*;
+import java.util.logging.*;
 import java.net.*;
 import java.io.*;
 import javax.json.*;
@@ -55,6 +56,8 @@ public class LugChatClient {
 
 	public static boolean notStopping;
 
+	public static Logger logger;
+
 	public static void parseServerMessages(BufferedReader in, Vector<JsonObject> messageQueue){
 		JsonObject latestMessage = null;
 		while(notStopping){
@@ -76,8 +79,9 @@ public class LugChatClient {
 
 				String line = in.readLine();
 				latestMessage = Json.createReader(new StringReader(line)).readObject();
-				System.out.println("Rx: '"+latestMessage+"'");
-				System.out.print("\n>");
+				// System.out.println("Rx: '"+latestMessage+"'");
+				logger.info("Rx: '"+latestMessage+"'");				
+				// System.out.print("\n>");
 				messageQueue.add(latestMessage);
 				synchronized(messageQueue){
 					messageQueue.notify();
@@ -161,16 +165,18 @@ public class LugChatClient {
 						serverVerifier.update(message.getJsonObject("message").toString().getBytes());
 						sigCheck = serverVerifier.verify(Base64.getDecoder().decode(message.getString("sig")));
 					} catch(SignatureException e){
-						System.out.println("exception when verifying signature: "+e);
+						// System.out.println("exception when verifying signature: "+e);
+						logger.warning("exception when verifying signature: "+e);						
 					}
 					//figure out type
 					String type = message.getJsonObject("message").getString("type");
 					//run appropriate method
-					System.out.println("Message:");
-					System.out.println(message);
-					System.out.println("Verified: "+sigCheck);
-					System.out.println("---");
-					System.out.print("\n>");
+					// System.out.println("Message:");
+					// System.out.println(message);
+					// System.out.println("Verified: "+sigCheck);
+					// System.out.println("---");
+					// System.out.print("\n>");
+					logger.info("Message:\n"+message+"\nVerified: "+sigCheck+"\n---\n");
 				}
 			} else {
 				try{
@@ -231,6 +237,13 @@ public class LugChatClient {
 			BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));
 			// InputStream in = s.getInputStream();
 		) {
+			//logging
+			logger = Logger.getLogger(LugChatClient.class.getName());
+			logger.setUseParentHandlers(false);
+			FileHandler logout = new FileHandler("lugchat-client.log",true);
+			logout.setFormatter(new SimpleFormatter());
+			logger.addHandler(logout);
+			logger.setLevel(Level.ALL);
 			//keys
 			File pubFD = new File("key.pub"), privFD = new File("key.priv");
 			KeyPair keypair;
@@ -284,6 +297,8 @@ public class LugChatClient {
 			pmqThread.join();
 			puiThread.join();
 			pmoqThread.join();
+			logout.flush();
+			logout.close();
 		} catch(Exception e){
 			throw new RuntimeException(e);
 		}

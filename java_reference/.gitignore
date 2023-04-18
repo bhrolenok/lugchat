@@ -1,3 +1,5 @@
 *.class
 key.*
 *.key
+*.log
+*.log.lck

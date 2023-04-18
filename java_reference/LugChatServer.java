@@ -1,5 +1,6 @@
 // LugChatServer.java
 import java.util.*;
+import java.util.logging.*;
 import java.net.*;
 import java.io.*;
 import javax.json.*;
@@ -108,6 +109,11 @@ public class LugChatServer {
 		File pubFD = new File("server-pub.key"), privFD = new File("server-priv.key");
 		KeyPair keypair;
 		try{
+			Logger.getLogger(LugChatServer.class.getName()).setUseParentHandlers(false);
+			FileHandler logout = new FileHandler("lugchat-server.log",true);
+			logout.setFormatter(new SimpleFormatter());
+			Logger.getLogger(LugChatServer.class.getClass().getName()).addHandler(logout);
+
 			if(!(pubFD.exists()&&privFD.exists())){
 				keypair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
 				FileWriter fw = new FileWriter(pubFD);
