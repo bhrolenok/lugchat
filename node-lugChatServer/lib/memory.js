@@ -1,10 +1,10 @@
 // @ts-check
-import BaseDB from './BaseDB.js';
+/** @typedef {import('./model').BaseDB} BaseDB */
 
 /**
  * @implements {BaseDB}
  */
-export default class MemoryDB extends BaseDB {
+export default class MemoryDB {
   /** @type {Record<string, any>} */
   #keyStore;
 

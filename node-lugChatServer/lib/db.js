@@ -6,10 +6,10 @@ import MemoryDB from './memory.js';
 
 const log = debug('lugchat:nodeServer');
 
-/** @typedef {import('./BaseDB')} BaseDB */
+/** @typedef {import('./model').BaseDB} BaseDB */
 
 /** @type {BaseDB} */
-let dbInstance = null;
+let dbInstance;
 
 /**
  * @enum {string}
