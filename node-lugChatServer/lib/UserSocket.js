@@ -1,6 +1,5 @@
 // @ts-check
 import debug from 'debug';
-import { subscribe } from 'diagnostics_channel';
 import EventEmitter from 'events';
 import { Utils, Protocol } from 'node-lugchat-common';
 
@@ -32,19 +31,23 @@ export default class UserSocket extends EventEmitter {
   /** @type {NodeJS.Timer} */
   #timer;
 
+  #db;
+
   /**
    * Create a new object to handle the requests coming in from this user
    * @param {WebSocket} ws websocket that connected
    * @param {import('http').IncomingMessage} req figure out where this comes from
    * @param {string} svrPvtKey key for signing messages
    * @param {string} svrPubKey key for sending clients
+   * @param {object} db database to use
    * @event UserSocket#disconnected
    */
-  constructor(ws, req, svrPvtKey, svrPubKey) {
+  constructor(ws, req, svrPvtKey, svrPubKey, db) {
     super();
     this.#ws = ws;
     this.#svrPvtKey = svrPvtKey;
     this.#svrPubKey = svrPubKey;
+    this.#db = db;
 
     // default take the remoteaddress, which could be a load balancer
     let ipAddr = req.socket.remoteAddress || '';
@@ -275,5 +278,8 @@ export default class UserSocket extends EventEmitter {
      */
     this.emit('messageReceived', mw);
     log('reply sent');
+
+    // store the record
+    // this.#db.set
   }
 }

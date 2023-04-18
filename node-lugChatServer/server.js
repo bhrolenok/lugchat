@@ -8,6 +8,7 @@ import { Utils } from 'node-lugchat-common';
 
 import { ConnectionStatus } from 'node-lugchat-common/lib/Protocol.js';
 import UserSocket from './lib/UserSocket.js';
+import { initDB, getDB } from './lib/db.js';
 
 /** @typedef {import('node-lugchat-common/lib/Protocol.js').MessageWrapper} MessageWrapper */
 
@@ -50,6 +51,10 @@ const server = createServer({ cert: readFileSync(SERVER_CERT), key: readFileSync
 // WebSocket Server
 const wss = new WebSocketServer({ server });
 
+const DB_TYPE = process.env.DB_TYPE || 'memory';
+
+const db = initDB(DB_TYPE, null);
+
 /** @type {UserSocket[]} */
 let trackedUsers = [];
 
@@ -71,7 +76,7 @@ function broadcastMessage(mw) {
 // connection, listening, error
 wss.on('connection', (ws, req) => {
   log('connection seen', req.socket.remoteAddress);
-  const us = new UserSocket(ws, req, pvtKeyStr, pubKeyStr);
+  const us = new UserSocket(ws, req, pvtKeyStr, pubKeyStr, db);
   // ensure good messages get re-broadcast to everyone
   us.on('messageReceived', (mw) => {
     broadcastMessage(mw);
