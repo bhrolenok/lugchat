@@ -55,7 +55,7 @@ let lastDay = 0;
 
 /**
  * appends new message onto the chatLog
- * @param {Protocol.BaseMessage} bm
+ * @param {Protocol.ClientMessage} bm
  * @param {string} msg what to add
  * @param {string} [color] optional color to decorate name with
  */
@@ -134,11 +134,11 @@ ws.on('error', (err) => {
 
 ws.on('message', async (data) => {
   log.log(`message received ${data}`);
-  /** @type {MessageWrapper} */
+  /** @type {MessageWrapper | null} */
   let wrapper = null;
   try {
-    wrapper = JSON.parse(data);
-    if (Utils.isNull(wrapper.message)) {
+    wrapper = JSON.parse(data.toString());
+    if (Utils.isNull(wrapper?.message)) {
       throw new Error('malformed message');
     }
   } catch (err) {
@@ -146,7 +146,7 @@ ws.on('message', async (data) => {
     return;
   }
 
-  const { message } = wrapper;
+  const { message } = /** @type {Protocol.MessageWrapper} */ (wrapper);
 
   switch (message.type) {
     case 'response': {
@@ -158,7 +158,7 @@ ws.on('message', async (data) => {
       break;
     }
     case 'hello': {
-      const cm = /** @type {Protocol.ClientMessage} */ (wrapper.message);
+      const cm = /** @type {Protocol.ClientMessage} */ (message);
       // /** @type {Protocol.HelloMessage} */
       // const hm = cm.content;
       // TODO: store nick/pubKey
@@ -166,7 +166,7 @@ ws.on('message', async (data) => {
       break;
     }
     case 'post': {
-      const cm = /** @type {Protocol.ClientMessage} */ (wrapper.message);
+      const cm = /** @type {Protocol.ClientMessage} */ (message);
       /** @type {Protocol.PostMessage} */
       const pm = cm.content;
       addChat(cm, pm.postContent);
@@ -220,7 +220,7 @@ textInput.key('enter', async () => {
   // silly way to clear and keep box focus
   textInput.clearValue();
   textInput.focus();
-  /** @type {Protocol.PostMessage} */
+  /** @type {Protocol.ClientMessage} */
   const message = {
     type: 'post',
     time: Date.now(),
