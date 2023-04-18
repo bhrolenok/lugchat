@@ -32,10 +32,22 @@ const delay = (ms) => new Promise((resolve) => {
  * @param {string} content string to sign
  */
 function sign(privateKey, content) {
-  const s = crypto.createSign('SHA256');
+  const s = crypto.createSign('SHA512');
   s.write(content);
   s.end();
   return s.sign(privateKey, 'base64');
+}
+
+/**
+ * hash the given string with md5 into hex format
+ * @param {string|object} str if object, JSON.stringify is called prior to sum
+ * @returns {string} hex format md5 sum
+ */
+function md5(str) {
+  if (typeof str === 'object') {
+    return crypto.createHash('md5').update(JSON.stringify(str)).digest('hex').toString();
+  }
+  return crypto.createHash('md5').update(str).digest('hex').toString();
 }
 
 /**
@@ -46,12 +58,12 @@ function sign(privateKey, content) {
  * @returns {boolean} true if sig checked out
  */
 function verify(pubKey, sig, str) {
-  const v = crypto.createVerify('SHA256');
+  const v = crypto.createVerify('SHA512');
   v.write(str);
   v.end();
   return v.verify(pubKey, sig, 'base64');
 }
 
 export {
-  delay, isNull, isntNull, sign, verify,
+  delay, isNull, isntNull, md5, sign, verify,
 };

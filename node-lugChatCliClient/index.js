@@ -1,9 +1,12 @@
+// @ts-check
 import * as dotenv from 'dotenv';
 import blessed from 'blessed';
 import contrib from 'blessed-contrib';
 import { WebSocket } from 'ws';
 import { Protocol, Utils } from 'node-lugchat-common';
 import fs from 'fs';
+
+// const { MessageType } = Protocol;
 
 dotenv.config();
 
@@ -52,7 +55,7 @@ let lastDay = 0;
 
 /**
  * appends new message onto the chatLog
- * @param {Protocol.BaseMessage} bm
+ * @param {Protocol.ClientMessage} bm
  * @param {string} msg what to add
  * @param {string} [color] optional color to decorate name with
  */
@@ -117,7 +120,7 @@ const ws = new WebSocket(uri, { rejectUnauthorized: false });
 
 /**
  * sends a clientmessage to the server
- * @param {ClientMessage} message what to ship to the server
+ * @param {Protocol.ClientMessage} message what to ship to the server
  */
 async function send(message) {
   await ws.send(JSON.stringify(Protocol.wrapResponse(message, pvtKeyStr)));
@@ -131,11 +134,11 @@ ws.on('error', (err) => {
 
 ws.on('message', async (data) => {
   log.log(`message received ${data}`);
-  /** @type {MessageWrapper} */
+  /** @type {MessageWrapper | null} */
   let wrapper = null;
   try {
-    wrapper = JSON.parse(data);
-    if (Utils.isNull(wrapper.message)) {
+    wrapper = JSON.parse(data.toString());
+    if (Utils.isNull(wrapper?.message)) {
       throw new Error('malformed message');
     }
   } catch (err) {
@@ -143,18 +146,19 @@ ws.on('message', async (data) => {
     return;
   }
 
-  const { message } = wrapper;
+  const { message } = /** @type {Protocol.MessageWrapper} */ (wrapper);
 
   switch (message.type) {
     case 'response': {
       /** @type {ServerMessage} */
-      const sm = wrapper.message;
+      // const sm = wrapper.message;
       // TODO: probably should get rid of input content here if its a post reply!
+      // const { responseToType } = sm;
+      // TODO: handle history, users, errors
       break;
     }
     case 'hello': {
-      /** @type {Protocol.ClientMessage} */
-      const cm = wrapper.message;
+      const cm = /** @type {Protocol.ClientMessage} */ (message);
       // /** @type {Protocol.HelloMessage} */
       // const hm = cm.content;
       // TODO: store nick/pubKey
@@ -162,8 +166,7 @@ ws.on('message', async (data) => {
       break;
     }
     case 'post': {
-      /** @type {Protocol.ClientMessage} */
-      const cm = wrapper.message;
+      const cm = /** @type {Protocol.ClientMessage} */ (message);
       /** @type {Protocol.PostMessage} */
       const pm = cm.content;
       addChat(cm, pm.postContent);
@@ -191,6 +194,23 @@ ws.on('open', async () => {
 
   await send(message);
   log.log('login sent');
+
+  /** @type {Protocol.SubscribeMessage} */
+  const sub = {
+    publicKey: pubKeyStr,
+    lastClientTime: 0,
+  };
+
+  // subscribe
+  const subMessage = {
+    type: 'subscribe',
+    nick,
+    time: Date.now(),
+    content: sub,
+  };
+
+  await send(subMessage);
+  log.log('subscribed');
 });
 
 textInput.key('enter', async () => {
@@ -200,10 +220,10 @@ textInput.key('enter', async () => {
   // silly way to clear and keep box focus
   textInput.clearValue();
   textInput.focus();
-  /** @type {Protocol.PostMessage} */
+  /** @type {Protocol.ClientMessage} */
   const message = {
     type: 'post',
-    time: new Date().getTime(),
+    time: Date.now(),
     nick,
     content: {
       postContent,

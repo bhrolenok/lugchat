@@ -23,7 +23,7 @@ $(SIGN_PRIV):
 	openssl genrsa -out $(SIGN_PRIV) 4096
 
 $(SIGN_PUB): $(SIGN_PRIV)
-	openssl rsa -in private.pem -pubout -out $(SIGN_PUB)
+	openssl rsa -in $(SIGN_PRIV) -pubout -out $(SIGN_PUB)
 
 node_modules: package.json
 	npm install

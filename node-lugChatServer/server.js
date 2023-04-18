@@ -1,11 +1,16 @@
+// @ts-check
 import * as dotenv from 'dotenv';
 import debug from 'debug';
 import { createServer } from 'https';
 import { statSync, readFileSync } from 'fs';
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 import { Utils } from 'node-lugchat-common';
 
+import { ConnectionStatus } from 'node-lugchat-common/lib/Protocol.js';
 import UserSocket from './lib/UserSocket.js';
+import { initDB, getDB } from './lib/db.js';
+
+/** @typedef {import('node-lugchat-common/lib/Protocol.js').MessageWrapper} MessageWrapper */
 
 dotenv.config();
 const log = debug('lugchat:nodeServer');
@@ -46,30 +51,41 @@ const server = createServer({ cert: readFileSync(SERVER_CERT), key: readFileSync
 // WebSocket Server
 const wss = new WebSocketServer({ server });
 
+const DB_TYPE = process.env.DB_TYPE || 'memory';
+
+const db = initDB(DB_TYPE, null);
+
+/** @type {UserSocket[]} */
+let trackedUsers = [];
+
 /**
  * broadcasts the message out to all participants
- * @param {Protocol.MessageWrapper} mw message to broadcast to all clients
+ * @param {MessageWrapper} mw message to broadcast to all clients
  */
 function broadcastMessage(mw) {
   // TODO: make sure its a messagewrapper!
   log('broadcasting message', mw?.message?.type);
-  wss.clients.forEach((c) => {
-    if (c.readyState === WebSocket.OPEN) {
-      c.send(JSON.stringify(mw));
+  trackedUsers.forEach((us) => {
+    if (us.user.connStatus === ConnectionStatus.subscribed) {
+      // TODO: handle failed send
+      us.send(mw);
     }
   });
 }
 
-/** @type {[UserSocket]} */
-const trackedUsers = [];
-
 // connection, listening, error
 wss.on('connection', (ws, req) => {
   log('connection seen', req.socket.remoteAddress);
-  const us = new UserSocket(ws, req, pvtKeyStr, pubKeyStr);
+  const us = new UserSocket(ws, req, pvtKeyStr, pubKeyStr, db);
   // ensure good messages get re-broadcast to everyone
   us.on('messageReceived', (mw) => {
     broadcastMessage(mw);
+  });
+  // remove object from tracked users
+  us.on('disconnected', () => {
+    log('removing user for disconnect timeout', us.user.nick);
+    trackedUsers = trackedUsers.filter((u) => us.user !== u.user);
+    log('remaining users', trackedUsers.map((u) => u.user.nick));
   });
   // TODO: cleanup gone users
   trackedUsers.push(us);

@@ -1,6 +1,7 @@
+// @ts-check
 import debug from 'debug';
 import EventEmitter from 'events';
-import { Protocol } from 'node-lugchat-common';
+import { Utils, Protocol } from 'node-lugchat-common';
 
 const {
   AccRej, ConnectionStatus, UserStatus, ServerMessageReason,
@@ -9,6 +10,11 @@ const log = debug('lugchat:nodeServer');
 
 /** @typedef {import('ws').WebSocket} WebSocket */
 
+/**
+ * @emits UserSocket#messageReceived when a valid message from the client was handled
+ * @emits UserSocket#disconnected when socket detects via ping/pong that the clients gone
+ * @emits UserSocket#userUpdate when any change to the user is detected
+ */
 export default class UserSocket extends EventEmitter {
   /** @type {WebSocket} */
   #ws;
@@ -22,31 +28,44 @@ export default class UserSocket extends EventEmitter {
   /** @type {Protocol.User} */
   user;
 
+  /** @type {NodeJS.Timer} */
+  #timer;
+
+  #db;
+
   /**
    * Create a new object to handle the requests coming in from this user
    * @param {WebSocket} ws websocket that connected
    * @param {import('http').IncomingMessage} req figure out where this comes from
    * @param {string} svrPvtKey key for signing messages
    * @param {string} svrPubKey key for sending clients
+   * @param {object} db database to use
+   * @event UserSocket#disconnected
    */
-  constructor(ws, req, svrPvtKey, svrPubKey) {
+  constructor(ws, req, svrPvtKey, svrPubKey, db) {
     super();
     this.#ws = ws;
     this.#svrPvtKey = svrPvtKey;
     this.#svrPubKey = svrPubKey;
+    this.#db = db;
 
     // default take the remoteaddress, which could be a load balancer
-    let ipAddr = req.socket.remoteAddress;
+    let ipAddr = req.socket.remoteAddress || '';
 
     // if forwarded header is set, lets take that instead
-    if (req.headers['x-forwarded-for'] !== undefined) {
-      ipAddr = req.headers['x-forwarded-for'].split(',')[0].trim();
+    const xForward = req.headers['x-forwarded-for'];
+    if (Utils.isntNull(xForward)) {
+      // coersion of possible string[] to string
+      ipAddr = `${xForward}`.split(',')[0].trim();
     }
 
     this.user = {
       ip: ipAddr,
       userStatus: UserStatus.online,
       connStatus: ConnectionStatus.connected,
+      timedOut: false,
+      nick: '',
+      publicKey: '',
     };
 
     log('new connection', this.user);
@@ -55,6 +74,23 @@ export default class UserSocket extends EventEmitter {
     this.handleMessage = this.handleMessage.bind(this);
 
     ws.on('message', this.handleMessage);
+    // special ws response used for keeping the connection open
+    ws.on('pong', () => {
+      this.user.timedOut = false;
+    });
+    // setup interval for requesting pong response every 30s
+    this.#timer = setInterval(() => {
+      if (this.user.timedOut) {
+        this.user.userStatus = UserStatus.offline;
+        this.user.connStatus = ConnectionStatus.disconnected;
+        ws.terminate();
+        clearInterval(this.#timer);
+        this.emit('disconnected');
+      }
+      this.user.timedOut = true;
+      ws.ping();
+    }, 30 * 1000);
+
     ws.on('error', (err) => {
       log('socket failure', err);
     });
@@ -64,92 +100,186 @@ export default class UserSocket extends EventEmitter {
   }
 
   /**
+   * Sends a message to the client
+   * @param {Protocol.MessageWrapper} mw message to send
+   * @returns {Promise<boolean>} promise resolves true if the message was sent.
+   */
+  async send(mw) {
+    try {
+      await this.#ws.send(JSON.stringify(mw));
+    } catch (err) {
+      log('message send failure', err);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Sends the reply to the client
+   * @param {Protocol.ServerMessage} sm message to reply with
+   */
+  async #reply(sm) {
+    const mw = Protocol.wrapResponse(sm, this.#svrPvtKey);
+    log('server reply', mw);
+    return this.send(mw);
+  }
+
+  /**
+   * verifies the client message, sends server response if message was bad
+   * @param {Protocol.MessageWrapper} mw wrapper with sig
+   * @param {Protocol.MessageType} type type field from the sent message
+   * @returns {boolean} true if message was good, false if bad
+   */
+  #verify(mw, type) {
+    if (!Protocol.verifyMessage(mw, this.user.publicKey)) {
+      // failed
+      log('sig verification failed');
+      /** @type {Protocol.ServerMessage} */
+      const sm = {
+        reason: ServerMessageReason.signature,
+        time: Date.now(),
+        response: AccRej.reject,
+        type: Protocol.MessageType.response,
+        responseToType: type,
+        origSig: mw.sig,
+        content: {},
+      };
+      this.#reply(sm);
+      return false;
+    }
+    log('message verified');
+    return true;
+  }
+
+  /**
+   * Determins if the user is ok for messaging, sends response if user isnt logged in
+   * @param {Protocol.MessageWrapper} mw wrapper with sig
+   * @param {Protocol.MessageType} type type field from the sent message
+   * @returns {boolean} true if the user has passed keys and is good to take part
+   */
+  #loggedIn(mw, type) {
+    if (this.user.connStatus === ConnectionStatus.connected
+    || this.user.connStatus === ConnectionStatus.disconnected) {
+      // failed
+      log('message attempted while not logged in');
+      /** @type {Protocol.ServerMessage} */
+      const sm = {
+        reason: ServerMessageReason.access,
+        time: Date.now(),
+        response: AccRej.reject,
+        type: Protocol.MessageType.response,
+        responseToType: type,
+        origSig: mw.sig,
+        content: {},
+      };
+      this.#reply(sm);
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * handles a message receieved from the client
    * @param {string} rawMessage the message recieved in string form
+   * @event UserSocket#messageReceived
    */
   // eslint-disable-next-line class-methods-use-this
   async handleMessage(rawMessage) {
-    /** @type {MessageWrapper} */
-    let mw = null;
+    /** @type {Protocol.MessageWrapper} */
+    // @ts-ignore
+    let mw = {};
     try {
       mw = JSON.parse(rawMessage);
     } catch (err) {
       log('error unmarshalling record');
-      /** @type {ServerMessage} */
+      /** @type {Protocol.ServerMessage} */
       const sm = {
         reason: ServerMessageReason.format,
-        time: new Date().getTime(),
+        responseToType: Protocol.MessageType.unknown,
+        origSig: '',
+        time: Date.now(),
         response: AccRej.reject,
-        type: 'unknown',
+        type: Protocol.MessageType.response,
+        content: null,
       };
-      await this.#ws.send(JSON.stringify(Protocol.wrapResponse(sm, this.#svrPvtKey)));
+      await this.#reply(sm);
       return;
     }
 
     log('MESSAGE', mw);
 
-    const { message } = mw;
+    const cm = /** @type {Protocol.ClientMessage} */ (mw.message);
 
-    // do message verification
+    // do message verification if we have keys
     if (this.user.connStatus === Protocol.ConnectionStatus.loggedIn) {
-      if (!Protocol.verifyMessage(mw, this.user.publicKey)) {
-        // failed
-        log('sig verification failed');
-        /** @type {ServerMessage} */
-        const sm = {
-          reason: ServerMessageReason.signature,
-          time: new Date().getTime(),
-          response: AccRej.reject,
-          type: message.type,
-        };
-        await this.#ws.send(JSON.stringify(Protocol.wrapResponse(sm, this.#svrPvtKey)));
-        return;
-      }
-      log('message verified');
+      this.#verify(mw, cm.type);
     }
 
     const serverContentResponse = {};
 
-    switch (message.type) {
+    switch (cm.type) {
       case 'hello': {
         /** @type {Protocol.HelloMessage} */
-        const hello = message.content;
+        const hello = cm.content;
         this.user.connStatus = ConnectionStatus.loggedIn;
         this.user.userStatus = UserStatus.online;
         this.user.publicKey = hello.publicKey;
-        this.user.nick = message.nick;
+        this.user.nick = cm.nick;
 
-        // TODO: can verify the login message now!
-
-        serverContentResponse.serverKey = this.#svrPvtKey;
-        log('user logged in', this.user.nick);
+        // verify the message now that we have keys
+        if (this.#verify(mw, cm.type)) {
+          serverContentResponse.serverKey = this.#svrPubKey;
+          log('user logged in', this.user.nick);
+        }
         break;
+      }
+      case 'subscribe': {
+        // login check
+        if (this.#loggedIn(mw, cm.type)) {
+          /** @type {Protocol.SubscribeMessage} */
+          const sub = cm.content;
+          log('subscribe', sub);
+          this.user.connStatus = ConnectionStatus.subscribed;
+          break;
+        }
+        return; // bail cause login wasnt present
       }
       case 'post': {
-        // TODO: login check
-        /** @type {PostMessage} */
-        const post = message.content;
-        log('post', post.postContent);
-        break;
+        // login check
+        if (this.#loggedIn(mw, cm.type)) {
+          /** @type {Protocol.PostMessage} */
+          const post = cm.content;
+          log('post', post.postContent);
+          break;
+        }
+        return; // bail cause login wasnt present
       }
       default:
-        log('unknown message type', message.type);
+        log('unknown message type', cm.type);
     }
 
-    /** @type {serverResponse} */
+    /** @type {Protocol.ServerMessage} */
     const serverResponse = {
-      type: 'response',
-      responseTo: message.type,
+      type: Protocol.MessageType.response,
+      responseToType: cm.type,
       response: AccRej.accept,
-      time: new Date().getTime(),
+      time: Date.now(),
+      origSig: mw.sig,
       content: serverContentResponse,
     };
 
     // wrap and send
-    await this.#ws.send(JSON.stringify(Protocol.wrapResponse(serverResponse, this.#svrPvtKey)));
+    await this.#reply(serverResponse);
 
     // broadcast orig message to all clients
+    /**
+     * @event UserSocket#messageReceived
+     * @type {Protocol.MessageWrapper}
+     */
     this.emit('messageReceived', mw);
     log('reply sent');
+
+    // store the record
+    // this.#db.set
   }
 }
