@@ -6,9 +6,22 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+base64 = "0.21.0"
+futures-util = { version = "0.3.28", features = ["async-await", "std"] }
+hex = { version = "0.4.3", features = ["serde"] }
+native-tls = "0.2.11"
+openssl = "0.10.50"
 serde = { version="1.0.160", features = ["derive"] }
 serde_json = { version="1.0.96", features = ["raw_value"]}
 time = { version = "*", features = ["macros", "serde"]}
+tokio = { version = "1.27.0", features = ["io-util", "macros", "rt-multi-thread"]}
+tokio-tungstenite = { version = "0.18.0", features = ["native-tls"]}
+url = "2.3.1"
+
+# TBD crates?
+# - link_preview (https://github.com/EstebanBorai/link-preview)
+# - hex
+# - base64
 
 [dev-dependencies]
 ctor = "0.2.0"

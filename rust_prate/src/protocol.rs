@@ -47,18 +47,18 @@ impl Message {
 }
 
 #[derive(Serialize, Deserialize)]
-struct NicknameDetails {
-    nick: String,
+pub struct NicknameDetails {
+    pub nick: String,
     #[serde(with = "crate::utils::timestamp")]
-    time: OffsetDateTime,
+    pub time: OffsetDateTime,
 }
 
 #[derive(Serialize, Deserialize)]
-struct UnmappedMessage {
+pub struct UnmappedMessage {
     #[serde(flatten)]
-    details: NicknameDetails,
+    pub details: NicknameDetails,
     #[serde(flatten)]
-    content: HashMap<String, Value>,
+    pub content: HashMap<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
