@@ -1,19 +1,16 @@
-use std::collections::HashMap;
 use std::error::Error;
-use std::str::Utf8Error;
-use std::{env, io};
+use std::{env, io, path};
 use std::sync::{Arc, Mutex};
 use base64::Engine;
 use base64::engine::general_purpose as Base64;
 use futures_util::SinkExt;
-use openssl::hash::MessageDigest;
+use openssl::hash::{MessageDigest, hash};
 use openssl::pkey::{PKey, Private};
 use openssl::rsa::Rsa;
 use openssl::sign::Signer;
 use time::OffsetDateTime;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::{Error as TungsteniteError, Message};
-use tokio_tungstenite::tungstenite::Message::Text;
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream, connect_async_tls_with_config, Connector};
 
 
@@ -43,6 +40,7 @@ impl std::fmt::Display for ChatError {
 
 struct ChannelConnection<'a> {
     nick: &'a str,
+    key_hex: String,
     pkey: PKey<Private>,
     ws_stream: ChatWebSocket,
 }
@@ -65,26 +63,38 @@ impl ChannelConnection<'_, > {
             Err(err) => return Err(ChatError::IO(err)),
         };
 
-        // Generate an RSA keypair
-        let keypair = Rsa::generate(4096).unwrap();
+        // Retrieve or generate an RSA keypair
+        let private_pem = path::Path::new("private.pem");
+        let keypair = match std::fs::metadata(private_pem) {
+            Ok(_) => {
+                let private_pem = std::fs::read_to_string("private.pem").expect("Unable to read the `private.pem` private key file.  Exiting...");
+                Rsa::private_key_from_pem(private_pem.as_bytes()).unwrap()
+            },
+            Err(_) => {
+                let pk = Rsa::generate(4096).unwrap();
+                std::fs::write(private_pem, pk.private_key_to_pem().unwrap()).ok();
+                pk
+            },
+        };
         let keypair = PKey::from_rsa(keypair).unwrap();
+        let pub_key = keypair.public_key_to_pem().unwrap();
 
+        // Create our connection struct
         let mut conn = ChannelConnection { 
             nick: nick.clone(),
+            key_hex: hex::encode(hash(MessageDigest::md5(), &pub_key).unwrap().to_ascii_lowercase()),
             pkey: keypair.to_owned(),
             ws_stream: ws,
         };
 
-
-        // Pull out the base64 portion of the PEM (strip start and end)
-        let pub_key = keypair.public_key_to_pem().unwrap();
+        // Generate and send the 'hello' message
         let pub_key = String::from_utf8_lossy(&pub_key);
         let hello = json!({
             "type": "hello",
-            "nick": nick,
+            "nick": conn.nick,
             "time": utc_as_millis!(),
             "content": {
-                "pubKey": pub_key,
+                "publicKey": pub_key,
             }
         });
         conn.send_signed(hello).await.unwrap();
@@ -98,9 +108,9 @@ impl ChannelConnection<'_, > {
 
         let sig = Base64::STANDARD_NO_PAD.encode(signer.sign_to_vec().unwrap());
         let envelope = json!({
-            "message": msg, // !FIXME This gets converted to a string and not the object, ugh!
+            "message": msg,
             "sig": sig,
-            "keyHash": "BADC0DE",
+            "keyHash": self.key_hex,
             "protocolVersion": 1,
         });
 

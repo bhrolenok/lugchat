@@ -20,8 +20,6 @@ url = "2.3.1"
 
 # TBD crates?
 # - link_preview (https://github.com/EstebanBorai/link-preview)
-# - hex
-# - base64
 
 [dev-dependencies]
 ctor = "0.2.0"
