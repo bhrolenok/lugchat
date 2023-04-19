@@ -125,6 +125,7 @@ const ws = new WebSocket(uri, { rejectUnauthorized: false });
 async function send(message) {
   await ws.send(JSON.stringify(Protocol.wrapResponse(message, pvtKeyStr)));
 }
+
 // Handle Errors
 ws.on('error', (err) => {
   // TODO: get smarter about error type

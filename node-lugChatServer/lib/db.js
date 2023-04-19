@@ -14,11 +14,9 @@ let dbInstance;
 /**
  * @enum {string}
  */
-const DBType = {
+export const DBType = {
   memory: 'memory',
 };
-
-// TODO: how to get typing on the generic db returns??
 
 /**
  * Get an instance of the db
@@ -26,6 +24,7 @@ const DBType = {
  * @param {object} props additional properties for the db type
  * @returns {BaseDB} db instance
  */
+// eslint-disable-next-line no-unused-vars
 export function initDB(type, props) {
   switch (type) {
     case DBType.memory: {

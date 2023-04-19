@@ -1,6 +1,11 @@
 // @ts-check
 /** @typedef {import('./model').BaseDB} BaseDB */
 
+const optionDefaults = {
+  maxDuration: 0,
+  maxRecords: 1000,
+};
+
 /**
  * @implements {BaseDB}
  */
@@ -8,8 +13,50 @@ export default class MemoryDB {
   /** @type {Record<string, any>} */
   #keyStore;
 
+  /** @type {number} */
+  #maxDuration;
+
+  /** @type {number} */
+  #maxRecords;
+
+  /**
+   * Initializes the memory db, options default to maxRecords limit.
+   * In either case the oldest records are dumped first
+   * @param {object} options
+   * @param {number} options.maxDuration time in ms from now to keep (e.g. 1 day = 86400000)
+   * @param {number} options.maxRecords total number of records to limit to
+   */
+  constructor(options) {
+    const config = { ...optionDefaults, ...options };
+    this.#maxDuration = config.maxDuration;
+    this.#maxRecords = config.maxRecords;
+  }
+
+  /**
+   * keeps the store in line with the limits set
+   */
+  #maintain() {
+    if (this.#maxDuration !== 0) {
+      const tooOld = Date.now() - this.#maxDuration;
+      const keys = Object.keys(this.#keyStore).sort();
+      while (keys.length > 0 && +keys[0] < tooOld) {
+        delete this.#keyStore[keys[0]];
+        keys.shift();
+      }
+    }
+
+    if (this.#maxRecords !== 0) {
+      const keys = Object.keys(this.#keyStore).sort();
+      while (keys.length > this.#maxRecords) {
+        delete this.#keyStore[keys[0]];
+        keys.shift();
+      }
+    }
+  }
+
   set(key, value) {
     this.#keyStore[key] = value;
+    this.#maintain();
   }
 
   /**
