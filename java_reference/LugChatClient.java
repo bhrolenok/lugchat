@@ -160,6 +160,7 @@ public class LugChatClient {
 					//pop a message
 					JsonObject message = messageQueue.remove(0);
 					//verify sig
+					//TODO: Make a verifier for the appropriate key to handle relay messages
 					boolean sigCheck = false;
 					try{
 						serverVerifier.update(message.getJsonObject("message").toString().getBytes());
@@ -177,6 +178,11 @@ public class LugChatClient {
 					// System.out.println("---");
 					// System.out.print("\n>");
 					logger.info("Message:\n"+message+"\nVerified: "+sigCheck+"\n---\n");
+					if(type.equalsIgnoreCase("post")){
+						String from = message.getJsonObject("message").getString("nick")+"|"+message.getString("sig").substring(0,4)+((sigCheck)?"+":"-");
+						System.out.println("\n"+from+"> "+message.getJsonObject("message").getJsonObject("content").getString("post-content"));
+						System.out.print(">");
+					}
 				}
 			} else {
 				try{
@@ -224,6 +230,9 @@ public class LugChatClient {
 					msg = makeMessage(makeMessageDataObject("post",nick,makePostMessage(userInput)),sig);
 				}
 				messageOutQueue.add(msg);
+				synchronized(messageOutQueue){
+					messageOutQueue.notify();
+				}
 			} catch(SignatureException se){
 				throw new RuntimeException("Error signing messages", se);
 			}

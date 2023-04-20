@@ -44,9 +44,10 @@ public class LugChatServer {
 		return makeJsonResponseMessage("history",true,"none",Json.createObjectBuilder().add("msg-list",jab.build()).build());
 	}
 
-	public static void handleClientConnection(Socket s, Vector<JsonObject> history, KeyPair keypair) throws Exception{
+	public static void handleClientConnection(Socket s, Vector<JsonObject> history, KeyPair keypair, Vector<PrintWriter> subscribers, Vector<JsonObject> relayQueue) throws Exception{
 		System.out.println("Client connected: "+s.getInetAddress()+":"+s.getPort());
 		PrintWriter out = new PrintWriter(s.getOutputStream(), true);
+		subscribers.add(out);
 		BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));
 		String inLine, outLine;
 		PublicKey clientPubKey = null;
@@ -79,6 +80,10 @@ public class LugChatServer {
 					break;
 				case "post":
 					response = makeMessage( makeJsonResponseMessage("post",true,"none"), serverSig);
+					relayQueue.add(jobj);
+					synchronized(relayQueue){
+						relayQueue.notify();
+					}
 					break;
 				case "disconnect":
 					response = makeMessage(makeJsonResponseMessage("disconnect",true,"none"), serverSig);
@@ -91,16 +96,43 @@ public class LugChatServer {
 				response = makeMessage(makeJsonResponseMessage(jobj.getJsonObject("message").getString("type"),false,"signature"), serverSig);
 			}
 			// history.add(inLine);
-			out.write(response+"\n");
-			// out.write("test.\n");
-			out.flush();
+			synchronized(out){
+				out.write(response+"\n");
+				out.flush();
+			}
 		}
 		System.out.println("Closing connection: "+s.getInetAddress()+":"+s.getPort());
 		System.out.println("Time: "+System.currentTimeMillis());
 		// out.write("Bye.");
 		// out.flush();
+		//TODO: remove output from subscribers
+		subscribers.removeElement(out);
 		s.close();
 		System.out.println("Connection closed");
+	}
+
+	public static void relayToSubscribers(Vector<JsonObject> messagesToRelay, Vector<PrintWriter> subscribers){
+		while(keepAcceptingConnections){
+			try{
+				synchronized(messagesToRelay){
+					messagesToRelay.wait(2000);
+					//wait until someone .notify()s me of new messages in the relay queue
+				}				
+			} catch(InterruptedException ie){
+				//timeout OK, just loop around
+			}
+			//process messages in turn
+			while(messagesToRelay.size() > 0){
+				// System.out.println("Relaying message");
+				JsonObject msg = messagesToRelay.remove(0);
+				for(PrintWriter out : subscribers){
+					synchronized(out){
+						out.write(msg+"\n");
+						out.flush();
+					}
+				}
+			}
+		}
 	}
 
 	public static boolean keepAcceptingConnections = true;
@@ -134,10 +166,15 @@ public class LugChatServer {
 		} catch(Exception e){ throw new RuntimeException("Error setting up keys.",e); }
 		//main loop
 		ArrayList<Thread> connections = new ArrayList<Thread>();
+		Vector<PrintWriter> subscribers = new Vector<PrintWriter>();
+		Vector<JsonObject> relayQueue = new Vector<JsonObject>();
+		Thread relayThread;
 		try(ServerSocket servSock = new ServerSocket(listenPort); ){
+			relayThread = new Thread(){public void run(){ relayToSubscribers(relayQueue,subscribers); }};
+			relayThread.start();
 			while(keepAcceptingConnections){
 				Socket established = servSock.accept();
-				Thread t = new Thread(){public void run(){ try{ handleClientConnection(established,messageHistory,keypair);} catch(Exception e){ throw new RuntimeException("Exception in handleClientConnection", e); } }};
+				Thread t = new Thread(){public void run(){ try{ handleClientConnection(established,messageHistory,keypair,subscribers, relayQueue);} catch(Exception e){ throw new RuntimeException("Exception in handleClientConnection", e); } }};
 				connections.add(t);
 				t.start();
 				// handleClientConnection(established,messageHistory,keypair);
