@@ -102,6 +102,8 @@ public class LugChatServer {
 		s.close();
 		System.out.println("Connection closed");
 	}
+
+	public static boolean keepAcceptingConnections = true;
 	public static void main(String[] args){
 		int listenPort = Integer.parseInt(args[0]);
 		Vector<JsonObject> messageHistory = new Vector<JsonObject>();
@@ -131,15 +133,22 @@ public class LugChatServer {
 			}
 		} catch(Exception e){ throw new RuntimeException("Error setting up keys.",e); }
 		//main loop
-		while(true){
-			try(
-				ServerSocket servSock = new ServerSocket(listenPort);
+		ArrayList<Thread> connections = new ArrayList<Thread>();
+		try(ServerSocket servSock = new ServerSocket(listenPort); ){
+			while(keepAcceptingConnections){
 				Socket established = servSock.accept();
-			){
-				handleClientConnection(established,messageHistory,keypair);
+				Thread t = new Thread(){public void run(){ try{ handleClientConnection(established,messageHistory,keypair);} catch(Exception e){ throw new RuntimeException("Exception in handleClientConnection", e); } }};
+				connections.add(t);
+				t.start();
+				// handleClientConnection(established,messageHistory,keypair);
+			}
+		} catch(Exception e){ throw new RuntimeException(e); }
+		for(Thread t : connections){ 
+			try{
+				t.join();
 			} catch(Exception e){
-				throw new RuntimeException(e);
-			}			
+				throw new RuntimeException("Error waiting to join client connection thread.",e);
+			}
 		}
 	}
 }
