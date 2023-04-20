@@ -1,4 +1,8 @@
 // @ts-check
+import debug from 'debug';
+
+const log = debug('lugchat:memoryDB');
+
 /** @typedef {import('./model').BaseDB} BaseDB */
 
 const optionDefaults = {
@@ -7,10 +11,12 @@ const optionDefaults = {
 };
 
 /**
+ * A time based key-value store
+ * @class
  * @implements {BaseDB}
  */
 export default class MemoryDB {
-  /** @type {Record<string, any>} */
+  /** @type {Record<number, any>} */
   #keyStore;
 
   /** @type {number} */
@@ -22,7 +28,7 @@ export default class MemoryDB {
   /**
    * Initializes the memory db, options default to maxRecords limit.
    * In either case the oldest records are dumped first
-   * @param {object} options
+   * @param {object} [options]
    * @param {number} options.maxDuration time in ms from now to keep (e.g. 1 day = 86400000)
    * @param {number} options.maxRecords total number of records to limit to
    */
@@ -30,6 +36,12 @@ export default class MemoryDB {
     const config = { ...optionDefaults, ...options };
     this.#maxDuration = config.maxDuration;
     this.#maxRecords = config.maxRecords;
+    log('config', config);
+    this.#keyStore = {};
+  }
+
+  #keys() {
+    return Object.keys(this.#keyStore).sort();
   }
 
   /**
@@ -38,54 +50,57 @@ export default class MemoryDB {
   #maintain() {
     if (this.#maxDuration !== 0) {
       const tooOld = Date.now() - this.#maxDuration;
-      const keys = Object.keys(this.#keyStore).sort();
+      const keys = this.#keys();
       while (keys.length > 0 && +keys[0] < tooOld) {
         delete this.#keyStore[keys[0]];
+        log('dumped record that was too old', keys[0]);
         keys.shift();
       }
     }
 
     if (this.#maxRecords !== 0) {
-      const keys = Object.keys(this.#keyStore).sort();
+      const keys = this.#keys();
       while (keys.length > this.#maxRecords) {
         delete this.#keyStore[keys[0]];
+        log('dumped record that was too many', keys[0]);
         keys.shift();
       }
     }
   }
 
   set(key, value) {
+    log('storing key', key);
     this.#keyStore[key] = value;
     this.#maintain();
   }
 
-  /**
-   * retrieves the key if present
-   * @param {string} key id of the record to set
-   */
   get(key) {
     return this.#keyStore[key];
   }
 
-  /**
-   * Checks if key is contained in the store
-   * @param {string} key id of the record to set
-   * @returns {boolean} true if the key is in the storate
-   */
   has(key) {
     return Object.prototype.hasOwnProperty.call(this.#keyStore, key);
   }
 
-  /**
-   * deletes the key if present
-   * @param {string} key id of the record to set
-   * @returns true if deleted, false if something went wrong, undefined if not found
-   */
   delete(key) {
     if (this.has(key)) {
       return delete this.#keyStore[key];
     }
     return undefined;
+  }
+
+  oldest() {
+    const keys = this.#keys();
+    return keys.length === 0 ? 0 : keys[0];
+  }
+
+  newest() {
+    const keys = this.#keys();
+    return keys.length === 0 ? 0 : keys[keys.length - 1];
+  }
+
+  all() {
+    return Object.entries(this.#keyStore);
   }
 
   /**

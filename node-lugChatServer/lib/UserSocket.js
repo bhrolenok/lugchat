@@ -9,6 +9,7 @@ const {
 const log = debug('lugchat:nodeServer');
 
 /** @typedef {import('ws').WebSocket} WebSocket */
+/** @typedef {import('node-lugchat-common/lib/model').BaseDB} BaseDB */
 
 /**
  * @emits UserSocket#messageReceived when a valid message from the client was handled
@@ -31,6 +32,7 @@ export default class UserSocket extends EventEmitter {
   /** @type {NodeJS.Timer} */
   #timer;
 
+  /** @type {BaseDB} */
   #db;
 
   /**
@@ -39,7 +41,7 @@ export default class UserSocket extends EventEmitter {
    * @param {import('http').IncomingMessage} req figure out where this comes from
    * @param {string} svrPvtKey key for signing messages
    * @param {string} svrPubKey key for sending clients
-   * @param {object} db database to use
+   * @param {BaseDB} db database to use
    * @event UserSocket#disconnected
    */
   constructor(ws, req, svrPvtKey, svrPubKey, db) {
@@ -120,7 +122,7 @@ export default class UserSocket extends EventEmitter {
    */
   async #reply(sm) {
     const mw = Protocol.wrapResponse(sm, this.#svrPvtKey);
-    log('server reply', mw);
+    log('server reply', sm.response, sm.responseToType, sm.content); // mw);
     return this.send(mw);
   }
 
@@ -215,7 +217,9 @@ export default class UserSocket extends EventEmitter {
       this.#verify(mw, cm.type);
     }
 
-    const serverContentResponse = {};
+    // generic, can be so many things so cant type it
+    /** @type {object} */
+    let serverContentResponse = {};
 
     switch (cm.type) {
       case 'hello': {
@@ -228,7 +232,11 @@ export default class UserSocket extends EventEmitter {
 
         // verify the message now that we have keys
         if (this.#verify(mw, cm.type)) {
-          serverContentResponse.serverKey = this.#svrPubKey;
+          /** @type {Protocol.ServerHelloResponse} */
+          const helloRes = {
+            serverKey: this.#svrPubKey,
+          };
+          serverContentResponse.serverKey = helloRes;
           log('user logged in', this.user.nick);
         }
         break;
@@ -240,6 +248,30 @@ export default class UserSocket extends EventEmitter {
           const sub = cm.content;
           log('subscribe', sub);
           this.user.connStatus = ConnectionStatus.subscribed;
+          /** @type {Protocol.ServerSubscribeResponse} */
+          const subRes = {
+            oldestMessageTime: this.#db.oldest(),
+            latestMessageTime: this.#db.newest(),
+          };
+          serverContentResponse = subRes;
+          break;
+        }
+        return; // bail cause login wasnt present
+      }
+      case 'history': {
+        // login check
+        if (this.#loggedIn(mw, cm.type)) {
+          /** @type {Protocol.HistoryMessage} */
+          const hist = cm.content;
+          log('hist', hist.start, hist.end);
+          // TODO: make smarter db call?
+          const records = this.#db.all().filter((e) => e[0] > hist.start && e[0] < hist.end);
+          /** @type {Protocol.ServerHistoryResponse} */
+          const histRes = {
+            msgList: records.map((m) => m[1]),
+          };
+          serverContentResponse = histRes;
+          log('returning history messages', records.length);
           break;
         }
         return; // bail cause login wasnt present
@@ -280,6 +312,6 @@ export default class UserSocket extends EventEmitter {
     log('reply sent');
 
     // store the record
-    // this.#db.set
+    this.#db.set(cm.time, mw);
   }
 }

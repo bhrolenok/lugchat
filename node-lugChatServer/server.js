@@ -4,11 +4,10 @@ import debug from 'debug';
 import { createServer } from 'https';
 import { statSync, readFileSync } from 'fs';
 import { WebSocketServer } from 'ws';
-import { Utils } from 'node-lugchat-common';
+import { Utils, DB } from 'node-lugchat-common';
 
 import { ConnectionStatus } from 'node-lugchat-common/lib/Protocol.js';
 import UserSocket from './lib/UserSocket.js';
-import { initDB, getDB } from './lib/db.js';
 
 /** @typedef {import('node-lugchat-common/lib/Protocol.js').MessageWrapper} MessageWrapper */
 
@@ -53,7 +52,7 @@ const wss = new WebSocketServer({ server });
 
 const DB_TYPE = process.env.DB_TYPE || 'memory';
 
-const db = initDB(DB_TYPE, null);
+const db = DB.initDB(DB_TYPE, null);
 
 /** @type {UserSocket[]} */
 let trackedUsers = [];
