@@ -1,24 +1,22 @@
 // @ts-check
 import debug from 'debug';
 
-import { Utils } from 'node-lugchat-common';
+// import * as Utils from './Utils.js';
 import MemoryDB from './memory.js';
 
-const log = debug('lugchat:nodeServer');
+const log = debug('lugchat:DB');
 
 /** @typedef {import('./model').BaseDB} BaseDB */
 
 /** @type {BaseDB} */
-let dbInstance;
+// let dbInstance;
 
 /**
  * @enum {string}
  */
-const DBType = {
+export const DBType = {
   memory: 'memory',
 };
-
-// TODO: how to get typing on the generic db returns??
 
 /**
  * Get an instance of the db
@@ -26,25 +24,25 @@ const DBType = {
  * @param {object} props additional properties for the db type
  * @returns {BaseDB} db instance
  */
+// eslint-disable-next-line no-unused-vars
 export function initDB(type, props) {
   switch (type) {
-    case DBType.memory: {
-      dbInstance = new MemoryDB();
+    case DBType.memory:
+    default: {
+      // dbInstance = new MemoryDB();
       log('memory db instance created');
-      break;
+      return new MemoryDB(props);
     }
-    default:
-      break;
   }
-  return dbInstance;
+  // return dbInstance;
 }
 
 /**
  * @returns a database for use if one was instantiated
  */
-export function getDB() {
-  if (Utils.isntNull(dbInstance)) {
-    return dbInstance;
-  }
-  return null;
-}
+// export function getDB() {
+//   if (Utils.isntNull(dbInstance)) {
+//     return dbInstance;
+//   }
+//   return null;
+// }

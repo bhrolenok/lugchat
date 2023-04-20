@@ -3,10 +3,13 @@ import * as dotenv from 'dotenv';
 import blessed from 'blessed';
 import contrib from 'blessed-contrib';
 import { WebSocket } from 'ws';
-import { Protocol, Utils } from 'node-lugchat-common';
+import { DB, Protocol, Utils } from 'node-lugchat-common';
 import fs from 'fs';
 
-// const { MessageType } = Protocol;
+// eslint-disable-next-line import/extensions
+// import ChatLog from './lib/ChatLog.js';
+
+const { MessageType } = Protocol;
 
 dotenv.config();
 
@@ -42,8 +45,7 @@ const screen = blessed.screen({ smartCSR: true });
 // eslint-disable-next-line new-cap
 const screenGrid = new contrib.grid({ rows: 12, cols: 12, screen });
 
-// grid.set(row, col, rowSpan, colSpan, obj, obj_opts)
-
+/** @type {contrib.Widgets.LogElement} */
 const chatLog = screenGrid.set(0, 0, 6, 12, contrib.log, {
   // fg: 'green',
   label: 'Chat',
@@ -52,6 +54,7 @@ const chatLog = screenGrid.set(0, 0, 6, 12, contrib.log, {
 });
 
 let lastDay = 0;
+const chatDB = DB.initDB(DB.DBType.memory, { maxRecords: 30 });
 
 /**
  * appends new message onto the chatLog
@@ -64,6 +67,8 @@ function addChat(bm, msg, color) {
   if (Utils.isNull(color)) {
     c = 'cyan';
   }
+
+  // ! Could be adding an older message, redo!
   const d = new Date(bm.time);
   const day = d.getDate();
   let dateStr = '';
@@ -72,7 +77,11 @@ function addChat(bm, msg, color) {
     dateStr += `${d.toDateString()} `;
   }
   dateStr += d.toTimeString().substring(0, 8);
-  chatLog.log(`{${c}-fg}${bm.nick}{/${c}-fg} [${dateStr}] - ${msg}`);
+  const chatStr = `{${c}-fg}${bm.nick}{/${c}-fg} [${dateStr}] - ${msg}`;
+  chatDB.set(bm.time, chatStr);
+  const msgs = chatDB.all();
+  chatLog.setItems(msgs.map((r) => r[1]));
+  chatLog.scrollTo(msgs.length);
 }
 
 const textInput = screenGrid.set(6, 0, 3, 12, blessed.textarea, {
@@ -125,6 +134,7 @@ const ws = new WebSocket(uri, { rejectUnauthorized: false });
 async function send(message) {
   await ws.send(JSON.stringify(Protocol.wrapResponse(message, pvtKeyStr)));
 }
+
 // Handle Errors
 ws.on('error', (err) => {
   // TODO: get smarter about error type
@@ -132,6 +142,84 @@ ws.on('error', (err) => {
   return process.exit(1);
 });
 
+/**
+ * Process a given message
+ * @param {MessageWrapper} wrapper
+ */
+async function handleMessage(wrapper) {
+  const { message } = wrapper;
+  log.log(`handling message type ${message.type}`);
+
+  switch (message.type) {
+    // server message
+    case 'response': {
+      const sm = /** @type {Protocol.ServerMessage} */ (message);
+      // TODO: probably should get rid of input content here if its a post reply!
+      switch (sm.responseToType) {
+        case MessageType.history: {
+          const histRes = /** @type {Protocol.ServerHistoryResponse} */ (sm.content);
+          log.log(`server history reply with ${histRes.msgList.length} messages`);
+          histRes.msgList.forEach((msg) => {
+            log.log(`sending message ${msg.message.type} to handle`);
+            handleMessage(msg);
+          });
+          break;
+        }
+        case MessageType.subscribe: {
+          // get the timestamps to send a history request
+          const subRes = /** @type {Protocol.ServerSubscribeResponse} */ (sm.content);
+          // wierd empty server?
+          if (subRes.latestMessageTime === 0) {
+            break;
+          }
+          // ? really dont have to do this tbh, could just request w/e anyways
+          /** @type {Protocol.HistoryMessage} */
+          const content = {
+            start: subRes.oldestMessageTime,
+            end: subRes.latestMessageTime,
+          };
+          await send({
+            type: MessageType.history,
+            nick,
+            time: Date.now(),
+            content,
+          });
+          break;
+        }
+        default: {
+          log.log(`ignoring server response ${sm.responseToType}`);
+          break;
+        }
+      }
+      break;
+    }
+    case MessageType.hello: {
+      const cm = /** @type {Protocol.ClientMessage} */ (message);
+      // /** @type {Protocol.HelloMessage} */
+      // const hm = cm.content;
+      // TODO: store nick/pubKey
+      addChat(cm, 'logged on', 'green');
+      break;
+    }
+    case MessageType.post: {
+      const cm = /** @type {Protocol.ClientMessage} */ (message);
+      /** @type {Protocol.PostMessage} */
+      const pm = cm.content;
+      addChat(cm, pm.postContent);
+      break;
+    }
+    // case MessageType.subscribe: {
+    //   // TODO: message doesnt have the nick, so cant do much with it
+    //   break;
+    // }
+    default: {
+      log.log(`ignoring message type ${message.type}`);
+      break;
+    }
+  }
+}
+
+// listen for incomming messages
 ws.on('message', async (data) => {
   log.log(`message received ${data}`);
   /** @type {MessageWrapper | null} */
@@ -145,38 +233,7 @@ ws.on('message', async (data) => {
     log.log('unable to read the message, skipping');
     return;
   }
-
-  const { message } = /** @type {Protocol.MessageWrapper} */ (wrapper);
-
-  switch (message.type) {
-    case 'response': {
-      /** @type {ServerMessage} */
-      // const sm = wrapper.message;
-      // TODO: probably should get rid of input content here if its a post reply!
-      // const { responseToType } = sm;
-      // TODO: handle history, users, errors
-      break;
-    }
-    case 'hello': {
-      const cm = /** @type {Protocol.ClientMessage} */ (message);
-      // /** @type {Protocol.HelloMessage} */
-      // const hm = cm.content;
-      // TODO: store nick/pubKey
-      addChat(cm, 'logged on', 'green');
-      break;
-    }
-    case 'post': {
-      const cm = /** @type {Protocol.ClientMessage} */ (message);
-      /** @type {Protocol.PostMessage} */
-      const pm = cm.content;
-      addChat(cm, pm.postContent);
-      break;
-    }
-    default: {
-      log.log(`unknown message type ${message.type}`);
-      break;
-    }
-  }
+  handleMessage(/** @type {MessageWrapper} */ (wrapper));
 });
 
 // first connect, send login and get user list
@@ -186,7 +243,7 @@ ws.on('open', async () => {
   const message = {
     type: 'hello',
     nick,
-    time: new Date().getTime(),
+    time: Date.now(),
     content: {
       publicKey: pubKeyStr,
     },

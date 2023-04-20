@@ -64,12 +64,16 @@ const UserStatus = {
  * @property {boolean} timedOut if true the users ping failed to respond
  */
 
+// * BASE MESSAGE EVERYTHING SENDS
+
 /**
  * @typedef {Object} BaseMessage
  * @property {MessageType} type
  * @property {number} time
  * @property {any} content
  */
+
+// * CLIENT MESSAGES
 
 /**
  * @typedef {Object} ClientMessageType
@@ -93,17 +97,17 @@ const UserStatus = {
  */
 
 /**
+ * @typedef {Object} HistoryMessage
+ * @property {number} start timestamp to start getting message from
+ * @property {number} end timestamp to finish getting messages from
+ */
+
+/**
  * @typedef {Object} PostMessage
  * @property {string} postContent
  */
 
-/** all transmitted messages are wrapped in this
- * @typedef {Object} MessageWrapper
- * @property {ClientMessage | ServerMessage} message message that was transmitted
- * @property {string} sig Base64
- * @property {string} keyHash
- * @property {number} protocolVersion
- */
+// * SERVER RESPONSES BELOW
 
 /**
  * @typedef {Object} ServerMessageType
@@ -115,6 +119,32 @@ const UserStatus = {
 
 /** ServerMessage extends BaseMessage
  * @typedef {BaseMessage & ServerMessageType} ServerMessage
+ */
+
+/**
+ * @typedef ServerSubscribeResponse
+ * @property {number} oldestMessageTime oldest recorded message the server has
+ * @property {number} latestMessageTime newest/latest message the server has seen
+ */
+
+/**
+ * @typedef ServerHelloResponse
+ * @property {string} serverKey public key of the server
+ */
+
+/**
+ * @typedef ServerHistoryResponse
+ * @property {MessageWrapper[]} msgList requested messages
+ */
+
+// * WRAPS ALL MESSAGES
+
+/** all transmitted messages are wrapped in this
+ * @typedef {Object} MessageWrapper
+ * @property {ClientMessage | ServerMessage} message message that was transmitted
+ * @property {string} sig Base64
+ * @property {string} keyHash
+ * @property {number} protocolVersion
  */
 
 /**
