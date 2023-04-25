@@ -10,6 +10,7 @@ import java.security.spec.*;
 
 public class LugChatClient {
 
+	/* moved to LugChatMessage.java
 	public static JsonObject makeMessage(JsonObject messageData, Signature sig) throws SignatureException {
 		// Signature sig = Signature.getInstance("SHA512withRSA");
 		// sig.initSign(kpair.getPrivate());
@@ -53,6 +54,7 @@ public class LugChatClient {
 	public static JsonObject makeDisconnectMessage(){
 		return Json.createObjectBuilder().build();
 	}
+	*/
 
 	public static boolean notStopping;
 
@@ -78,7 +80,9 @@ public class LugChatClient {
 				//because they throw exceptions if they've already called read().
 
 				String line = in.readLine();
-				latestMessage = Json.createReader(new StringReader(line)).readObject();
+				// latestMessage = Json.createReader(new StringReader(line)).readObject();
+				//TODO: replace all JsonObject's with LugChatMessages
+				latestMessage = (new LugChatMessage(line)).getJSON();
 				// System.out.println("Rx: '"+latestMessage+"'");
 				logger.info("Rx: '"+latestMessage+"'");				
 				// System.out.print("\n>");
@@ -114,75 +118,99 @@ public class LugChatClient {
 	public static void processMessageQueue(Vector<JsonObject> messageQueue){
 		// System.out.println("Beginning processing message queue thread.");
 		// System.out.print("\n>");
+		String serverPubKeyEncoded = null;
 		PublicKey serverPubKey = null;
 		Signature serverVerifier = null;
 		while(notStopping){
 			if(messageQueue.size()>0){
-				if(serverPubKey == null){
+				if(serverPubKeyEncoded == null){
 					// System.out.println("No server key set. Checking messages for valid server key in hello response.");
 					// System.out.print("\n>");
 					for(int i=0;i<messageQueue.size();i++){
 						JsonObject message = messageQueue.get(i);
-						if(message.getJsonObject("message").getString("type").equalsIgnoreCase("response")){
-							if(message.getJsonObject("message").getString("response-to").equalsIgnoreCase("hello")){
-								//grab key data from message
-								String encodedServerKey = message.getJsonObject("message").getJsonObject("content").getString("server-key");
-								//decode into key and save as serverPubKey
-								try{
-									KeyFactory kfac = KeyFactory.getInstance("RSA");
-									serverPubKey = kfac.generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(encodedServerKey)));
-									serverVerifier = Signature.getInstance("SHA512withRSA");
-									serverVerifier.initVerify(serverPubKey);
-									//delete message from messageQueue
-									messageQueue.remove(i);
-									//break the for loop
-									break;
-								} catch(Exception e){
-									throw new RuntimeException("Error processing server public key", e);
-								}
+						//TODO: replace all JsonObjects with LugChatMessages
+						LugChatMessage lcm = new LugChatMessage(message.toString());
+						if(lcm.getType()==LugChatMessage.Types.RESPONSE){
+							if(lcm.getResponseToType()==LugChatMessage.Types.HELLO){
+								serverPubKeyEncoded = lcm.getHelloResponseServerKey();
 							}
 						}
+						// if(message.getJsonObject("message").getString("type").equalsIgnoreCase("response")){
+						// 	if(message.getJsonObject("message").getString("response-to").equalsIgnoreCase("hello")){
+						// 		//grab key data from message
+						// 		String encodedServerKey = message.getJsonObject("message").getJsonObject("content").getString("server-key");
+						// 		//decode into key and save as serverPubKey
+						// 		try{
+						// 			KeyFactory kfac = KeyFactory.getInstance("RSA");
+						// 			serverPubKey = kfac.generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(encodedServerKey)));
+						// 			serverVerifier = Signature.getInstance("SHA512withRSA");
+						// 			serverVerifier.initVerify(serverPubKey);
+						// 			//delete message from messageQueue
+						// 			messageQueue.remove(i);
+						// 			//break the for loop
+						// 			break;
+						// 		} catch(Exception e){
+						// 			throw new RuntimeException("Error processing server public key", e);
+						// 		}
+						// 	}
+						// }
 					}
-					if(serverPubKey==null){
-						//looked through all the messages, but didn't find a hello response, sleep
-						//until we get a new message and try again.
+					if(serverPubKeyEncoded == null){
 						try{
 							synchronized(messageQueue){
 								messageQueue.wait(2000);
 							}
-						} catch(InterruptedException ie){
-							//timeout exception is OK, will just loop around
-						}
+						} catch(InterruptedException ie){ } //timeout OK, loops around
 					}
+					// if(serverPubKey==null){
+					// 	//looked through all the messages, but didn't find a hello response, sleep
+					// 	//until we get a new message and try again.
+					// 	try{
+					// 		synchronized(messageQueue){
+					// 			messageQueue.wait(2000);
+					// 		}
+					// 	} catch(InterruptedException ie){
+					// 		//timeout exception is OK, will just loop around
+					// 	}
+					// }
 				} else {
 					// System.out.println("Server key found. Processing message.");
 					// System.out.print("\n>");
+					//TODO: replace all JsonObjects with LugChatMessages
 					//pop a message
 					JsonObject message = messageQueue.remove(0);
 					//verify sig
 					//TODO: Make a verifier for the appropriate key to handle relay messages
-					boolean sigCheck = false;
-					try{
-						serverVerifier.update(message.getJsonObject("message").toString().getBytes());
-						sigCheck = serverVerifier.verify(Base64.getDecoder().decode(message.getString("sig")));
-					} catch(SignatureException e){
-						// System.out.println("exception when verifying signature: "+e);
-						logger.warning("exception when verifying signature: "+e);						
-					}
+					LugChatMessage lcm = new LugChatMessage(message.toString());
+					boolean sigCheck = lcm.sigVerified(serverPubKeyEncoded);
+					// boolean sigCheck = false;
+					// try{
+					// 	serverVerifier.update(message.getJsonObject("message").toString().getBytes());
+					// 	sigCheck = serverVerifier.verify(Base64.getDecoder().decode(message.getString("sig")));
+					// } catch(SignatureException e){
+					// 	// System.out.println("exception when verifying signature: "+e);
+					// 	logger.warning("exception when verifying signature: "+e);						
+					// }
 					//figure out type
-					String type = message.getJsonObject("message").getString("type");
+					// String type = message.getJsonObject("message").getString("type");
 					//run appropriate method
 					// System.out.println("Message:");
 					// System.out.println(message);
 					// System.out.println("Verified: "+sigCheck);
 					// System.out.println("---");
 					// System.out.print("\n>");
-					logger.info("Message:\n"+message+"\nVerified: "+sigCheck+"\n---\n");
-					if(type.equalsIgnoreCase("post")){
-						String from = message.getJsonObject("message").getString("nick")+"|"+message.getString("sig").substring(0,4)+((sigCheck)?"+":"-");
-						System.out.println("\n"+from+"> "+message.getJsonObject("message").getJsonObject("content").getString("post-content"));
+					// logger.info("Message:\n"+message+"\nVerified: "+sigCheck+"\n---\n");
+					logger.info("Message: "+lcm+" Verified: "+sigCheck);
+					if(lcm.getType()==LugChatMessage.Types.POST){
+						String from = lcm.getSendingNick()+"|"+lcm.getKeyHash().substring(0,4)+"|"+((sigCheck)?"+":"-");
+						System.out.println("\n"+from+"> "+lcm.getPostContent());
 						System.out.print(">");
 					}
+					// if(type.equalsIgnoreCase("post")){
+					// 	String from = message.getJsonObject("message").getString("nick")+"|"+message.getString("sig").substring(0,4)+((sigCheck)?"+":"-");
+					// 	System.out.println("\n"+from+"> "+message.getJsonObject("message").getJsonObject("content").getString("post-content"));
+					// 	System.out.print(">");
+					// }
 				}
 			} else {
 				try{
@@ -196,6 +224,7 @@ public class LugChatClient {
 		}
 	}
 
+	//TODO: replace JsonObjects with LugChatMessages
 	public static void processMessageOutQueue(Vector<JsonObject> messageOutQueue, PrintWriter out){
 		while(notStopping){
 			if(messageOutQueue.size()>0){
@@ -217,24 +246,24 @@ public class LugChatClient {
 		}
 	}
 
-	public static void processUserInput(Scanner scan, Vector<JsonObject> messageOutQueue, String nick, Signature sig){
+	//TODO: replace JsonObjects with LugChatMessages
+	public static void processUserInput(Scanner scan, Vector<JsonObject> messageOutQueue, String nick, KeyPair keypair){
 		String userInput;
 		JsonObject msg;
+		LugChatMessage.LugChatMessageFactory lcmf = new LugChatMessage.LugChatMessageFactory(nick,keypair);
 		while(notStopping){
 			System.out.print(">");
 			userInput = scan.nextLine();
-			try{
-				if(userInput.equalsIgnoreCase(".disconnect")){
-					msg = makeMessage(makeMessageDataObject("disconnect",nick,makeDisconnectMessage()),sig);
-				} else{
-					msg = makeMessage(makeMessageDataObject("post",nick,makePostMessage(userInput)),sig);
-				}
-				messageOutQueue.add(msg);
-				synchronized(messageOutQueue){
-					messageOutQueue.notify();
-				}
-			} catch(SignatureException se){
-				throw new RuntimeException("Error signing messages", se);
+			if(userInput.equalsIgnoreCase(".disconnect")){
+				// msg = makeMessage(makeMessageDataObject("disconnect",nick,makeDisconnectMessage()),sig);
+				msg = lcmf.makeDisconnectMessage().getJSON();
+			} else{
+				// msg = makeMessage(makeMessageDataObject("post",nick,makePostMessage(userInput)),sig);
+				msg = lcmf.makePostMessage(userInput).getJSON();
+			}
+			messageOutQueue.add(msg);
+			synchronized(messageOutQueue){
+				messageOutQueue.notify();
 			}
 		}
 	}
@@ -281,18 +310,22 @@ public class LugChatClient {
 			Vector<JsonObject> messageQueue = new Vector<JsonObject>();
 			Vector<JsonObject> messageOutQueue = new Vector<JsonObject>();
 			//make hello message for the first thing in messageOutQueue
-			JsonObject helloMsg = makeMessage(
-				makeMessageDataObject(
-					"hello", //type
-					args[2], //nick
-					makeHelloMessage(Base64.getEncoder().encodeToString(keypair.getPublic().getEncoded())) //content
-				),
-				sig);
+			// JsonObject helloMsg = makeMessage(
+			// 	makeMessageDataObject(
+			// 		"hello", //type
+			// 		args[2], //nick
+			// 		makeHelloMessage(Base64.getEncoder().encodeToString(keypair.getPublic().getEncoded())) //content
+			// 	),
+			// 	sig);
+			JsonObject helloMsg = LugChatMessage.makeHelloMessage(
+				args[2],	//nick
+				keypair		//keypair
+			).getJSON();
 			messageOutQueue.add(helloMsg);
 			//start thread for parsing server messages
 			Thread psmThread = new Thread(){ public void run(){ parseServerMessages(in,messageQueue); }};
 			//start thread for handling user input
-			Thread puiThread = new Thread(){ public void run(){ processUserInput(scan,messageOutQueue,args[2], sig); }};
+			Thread puiThread = new Thread(){ public void run(){ processUserInput(scan,messageOutQueue,args[2], keypair); }};
 			//start thread for processing INCOMING messages
 			Thread pmqThread = new Thread(){ public void run(){ processMessageQueue(messageQueue); }};
 			//start thread for processing OUTGOING messages
