@@ -1,5 +1,8 @@
 {
     "rust-analyzer.linkedProjects": [
         "./rust_prate/Cargo.toml"
-    ]
+    ],
+    "rust-analyzer.server.extraEnv": {
+        "OPENSSL_DIR": "C:\\Program Files\\OpenSSL-Win64",
+    }
 }

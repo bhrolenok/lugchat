@@ -10,6 +10,7 @@ use openssl::rsa::Rsa;
 use openssl::sign::Signer;
 use time::OffsetDateTime;
 use tokio::net::TcpStream;
+use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::{Error as TungsteniteError, Message};
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream, connect_async_tls_with_config, Connector};
 
@@ -19,6 +20,7 @@ use url::{Url, ParseError};
 
 mod protocol;
 mod utils;
+mod connection;
 
 type ChatWebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -32,7 +34,7 @@ impl Error for ChatError {}
 impl std::fmt::Display for ChatError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ChatError::IO(_) => todo!(),
+            ChatError::IO(io) => io.fmt(f),
             ChatError::Parsing(p) => p.fmt(f),
         }
     }
@@ -99,6 +101,7 @@ impl ChannelConnection<'_, > {
         });
         conn.send_signed(hello).await.unwrap();
 
+        
         Ok(conn)
     }
 

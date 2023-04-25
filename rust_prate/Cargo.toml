@@ -10,12 +10,14 @@ base64 = "0.21.0"
 futures-util = { version = "0.3.28", features = ["async-await", "std"] }
 hex = { version = "0.4.3", features = ["serde"] }
 native-tls = "0.2.11"
+#openssl-src = "300.0.13+3.0.8"
 openssl = "0.10.50"
 serde = { version="1.0.160", features = ["derive"] }
 serde_json = { version="1.0.96", features = ["raw_value"]}
 time = { version = "*", features = ["macros", "serde"]}
-tokio = { version = "1.27.0", features = ["io-util", "macros", "rt-multi-thread"]}
+tokio = { version = "1.27.0", features = ["io-util", "macros", "rt-multi-thread", "sync"]}
 tokio-tungstenite = { version = "0.18.0", features = ["native-tls"]}
+tokio-util = "0.7.7"
 url = "2.3.1"
 
 # TBD crates?

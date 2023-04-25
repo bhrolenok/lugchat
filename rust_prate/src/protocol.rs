@@ -6,8 +6,9 @@
 //! 
 //! Database objects and translation is located elsewhere.
 #[allow(dead_code)]
+
 use std::collections::HashMap;
-use std::hash::Hash;
+use std::fmt::{Debug, Display};
 use serde::{Serialize, Deserialize};
 use serde_json::value::{RawValue, Value};
 use time::OffsetDateTime;
@@ -23,64 +24,90 @@ pub struct SignedEnvelope<'a> {
     message: &'a RawValue,
     sig: Base64,
     key_hash: String,
-    protocol_version: u8,
+    pub protocol_version: u8,
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum Message {
-    Hello(UnmappedMessage),
-    Subscribe(UnmappedMessage),
-    Post(UnmappedMessage),
-    Response(ServerMessage),
-}
+impl SignedEnvelope<'_> {
+    pub fn is_server_response(&self) -> bool {
+        let raw = self.message.get();
+        raw.contains(r#""type":"response""#)
+    }
 
-impl Message {
-    pub fn is_type(&self, msg_type: &MessageType) -> bool {
-        match self {
-            Message::Hello(_) => *msg_type == MessageType::Hello,
-            Message::Subscribe(_) => *msg_type == MessageType::Subscribe,
-            Message::Post(_) => *msg_type == MessageType::Post,
-            _ => false,
-        }
+    pub fn to_message(&self) -> UnmappedMessage {
+        let msg: UnmappedMessage = serde_json::from_str(self.message.get()).unwrap();
+        msg
+    }
+    pub fn to_server_message(&self) -> ServerMessage {
+        todo!()
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct NicknameDetails {
     pub nick: String,
     #[serde(with = "crate::utils::timestamp")]
     pub time: OffsetDateTime,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct UnmappedMessage {
+    #[serde(rename="type")]
+    pub msg_type: MessageType,
     #[serde(flatten)]
     pub details: NicknameDetails,
-    #[serde(flatten)]
     pub content: HashMap<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+impl UnmappedMessage {
+    pub fn new(msg_type: MessageType, nick: String) -> UnmappedMessage {
+        UnmappedMessage { 
+            msg_type,
+            details: NicknameDetails { 
+                nick, 
+                time: OffsetDateTime::now_utc()
+            },
+            content: HashMap::new(),
+        }
+    }
+
+    pub fn get_content_str(&self, field: String) -> Option<&str> {
+        match self.content.get(&field) {
+            Some(value) => value.as_str(),
+            None => None,
+        }
+    }
+}
+
+impl Display for UnmappedMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UnmappedMessage")
+            .field("msg_type", &self.msg_type)
+            .field("details", &self.details)
+            .field("content", &self.content)
+            .finish()
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-enum MessageType {
+pub enum MessageType {
     Hello, History, Post, Subscribe
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 enum ServerReason {
     None, Format, Signature, Access, Exception
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 enum ServerAcceptCode {
     Accept,
     Reject,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ServerMessage {
     response_to_type: MessageType,
@@ -107,19 +134,19 @@ mod tests {
 
     fn build_test_message<'a>(msg_type: &'a str, content: &'a str) -> String {
         if msg_type.starts_with('"') && msg_type.ends_with('"') {
-            return format!(r#"{{"nick":"test","time":{},"type":{},"content":{}}}"#, NOW.unix_timestamp(), msg_type, content);
+            return format!(r#"{{"nick":"test","time":{},"type":{},"content":{}}}"#, utc_as_millis!(NOW), msg_type, content);
         }
-        return format!(r#"{{"nick":"test","time":{},"type":"{}","content":{}}}"#, NOW.unix_timestamp(), msg_type, content);
+        return format!(r#"{{"nick":"test","time":{},"type":"{}","content":{}}}"#, utc_as_millis!(NOW), msg_type, content);
     }
 
     #[test]
     fn message_invalid_deserialization() {
-        type SerdeResult = Result<Message, Error>;
+        type SerdeResult = Result<UnmappedMessage, Error>;
 
         let empty: SerdeResult = serde_json::from_str("{}");
         assert!(empty.is_err(), "Empty message should fail parsing");
 
-        let raw: String = format!(r#"{{"nick":"test","time":{},"content":{{"pubKey":"abc123"}}}}"#, utc_as_millis!(NOW));
+        let raw: String = format!(r#"{{"nick":"test","time":{},"content":{{"publicKey":"abc123"}}}}"#, utc_as_millis!(NOW));
         let missing_type: SerdeResult = serde_json::from_str(raw.as_str());
         assert!(missing_type.is_err(), "Missing type should fail parsing");
     }
@@ -127,41 +154,43 @@ mod tests {
     #[test]
     fn message_valid_deserialization() {
         use MessageType::*;
-        let type_to_content: [(MessageType, &str); 3] = [(Hello, r#"{"pubKey":"abc123"}"#), (Subscribe, "{}"), (Post, r#"{"postContent":"Hi!"}"#)];
+        let type_to_content: [(MessageType, &str); 3] = [(Hello, r#"{"publicKey":"abc123"}"#), (Subscribe, "{}"), (Post, r#"{"postContent":"Hi!"}"#)];
 
         for test in type_to_content {
             let raw = build_test_message(serde_json::to_string(&test.0).unwrap().as_str(), test.1);
-            let result: Message = serde_json::from_str(raw.as_str()).unwrap();
-            assert!(result.is_type(&test.0));
-            match result {
-                Message::Hello(h) => assert_eq!(MessageType::Hello, test.0),
-                Message::Subscribe(_) => assert_eq!(MessageType::Subscribe, test.0),
-                Message::Post(_) => assert_eq!(MessageType::Post, test.0),
-                Message::Response(v) => assert_eq!(v.response_to_type, test.0),
+            let result: UnmappedMessage = serde_json::from_str(raw.as_str()).unwrap();
+            println!("{}", raw);
+            println!("Contains: {} | {}", result.content.contains_key("publicKey"), result);
+            assert!(result.msg_type == test.0);
+            assert_eq!("test", result.details.nick);
+            match result.msg_type {
+                Hello => assert_eq!("abc123", result.content.get("publicKey").unwrap()),
+                History => assert!(false),
+                Post => assert_eq!("Hi!", result.get_content_str(String::from("postContent")).unwrap()),
+                Subscribe => assert!(result.content.is_empty()),
             }
         }
     }
 
     #[test]
     fn custom_timestamp_serialization() {
-        let hello_msg = Message::Hello( UnmappedMessage {
+        let hello_msg = UnmappedMessage {
             details: NicknameDetails {
                 nick: String::from("test"),
                 time: NOW.clone(),
             }, 
             content: HashMap::new(),
-        });
+            msg_type: MessageType::Hello,
+        };
 
         let raw = serde_json::to_string(&hello_msg).unwrap();
         assert!(raw.contains(format!(r#""time":{}{}"#, NOW.unix_timestamp(), NOW.millisecond()).as_str()), "Serialization failed: {}", raw);
 
-        let result: Message = serde_json::from_str(raw.as_str()).unwrap();
-        match result {
-            Message::Hello(h) => {
-                let expected = NOW.clone().replace_millisecond(NOW.millisecond()).unwrap();
-                assert_eq!(expected, h.details.time);
-            },
-            _ => assert!(false, "Invalid message type"),
-        }
+        let result: UnmappedMessage = serde_json::from_str(raw.as_str()).unwrap();
+        assert!(result.content.is_empty());
+        assert_eq!(MessageType::Hello, result.msg_type);
+        assert_eq!("test", result.details.nick);
+        let expected = NOW.clone().replace_millisecond(NOW.millisecond()).unwrap();
+        assert_eq!(expected, result.details.time);
     }
 }
