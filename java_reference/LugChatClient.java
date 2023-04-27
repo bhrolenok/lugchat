@@ -7,153 +7,66 @@ import javax.json.*;
 import javax.json.stream.*;
 import java.security.*;
 import java.security.spec.*;
+import java.nio.*;
 
 public class LugChatClient {
-
-	/* moved to LugChatMessage.java
-	public static JsonObject makeMessage(JsonObject messageData, Signature sig) throws SignatureException {
-		// Signature sig = Signature.getInstance("SHA512withRSA");
-		// sig.initSign(kpair.getPrivate());
-		sig.update(messageData.toString().getBytes());
-		String signature = Base64.getEncoder().encodeToString(sig.sign()); //"signed-with-"+privKey; //replace with actual signing code
-		return Json.createObjectBuilder().add("message",messageData).add("sig",signature).build();
-	}
-	public static JsonObject makeMessageDataObject(String type, String nick, JsonObject content){
-		return Json.createObjectBuilder()
-			.add("type",type)
-			.add("nick",nick)
-			.add("timestamp",Long.toString(System.currentTimeMillis()))
-			.add("content",content)
-			.build();
-	}
-	public static JsonObject makeHelloMessage(String base64PubKey){
-		return Json.createObjectBuilder().add("pub-key",base64PubKey).build();
-	}
-	public static String parseHelloResponse(JsonObject responseContent){
-		return responseContent.getString("server-key");
-	}
-	public static JsonObject makeSubscribeMessage(){
-		return Json.createObjectBuilder().build();
-	}
-	public static JsonObject makePostMessage(String postContent){
-		return Json.createObjectBuilder().add("post-content",postContent).build();
-	}
-	public static JsonObject makeHistoryMessage(long startTime, long endTime){
-		return Json.createObjectBuilder().add("start",startTime).add("end",endTime).build();
-	}
-	public static JsonArray parseHistoryResponse(JsonObject responseContent){
-		return responseContent.getJsonArray("msg-list");
-	}
-	public static JsonObject makeReplyMessage(long postTime, String origSigBase64, String replyContent){
-		return Json.createObjectBuilder()
-			.add("post-time",postTime)
-			.add("orig-sig",origSigBase64)
-			.add("reply-content",replyContent)
-			.build();
-	}
-	public static JsonObject makeDisconnectMessage(){
-		return Json.createObjectBuilder().build();
-	}
-	*/
 
 	public static boolean notStopping;
 
 	public static Logger logger;
 
-	public static void parseServerMessages(BufferedReader in, Vector<JsonObject> messageQueue){
-		JsonObject latestMessage = null;
+	public static final char[] hexChars = "0123456789abcdef".toCharArray();
+
+	public static void parseServerMessages(BufferedReader in, Vector<LugChatMessage> messageQueue){
+		// JsonObject latestMessage = null;
 		while(notStopping){
 			try{
-				//what the actual fuck is with java networking
-				//jesus. It was threading + scope. If a stream/reader object
-				//goes out of scope it tries to close the underlying stream,
-				//which makes it invalid for any other reader/stream built
-				//on the same underlying I/O thing. This happens when you
-				//hit the end of a try-with-resources block and you don't
-				//join() the threads that access the objects created in the
-				//parent thread. I bet that the JsonParser and JsonReader
-				//will work now. Creation works at least.
-
-				//reading directly appears not to work.
-				// latestMessage = jread.readObject();
-				//apparently, JsonReader objs should only be used from static sources,
-				//because they throw exceptions if they've already called read().
-
 				String line = in.readLine();
-				// latestMessage = Json.createReader(new StringReader(line)).readObject();
 				//TODO: replace all JsonObject's with LugChatMessages
-				latestMessage = (new LugChatMessage(line)).getJSON();
-				// System.out.println("Rx: '"+latestMessage+"'");
-				logger.info("Rx: '"+latestMessage+"'");				
-				// System.out.print("\n>");
-				messageQueue.add(latestMessage);
+				// latestMessage = (new LugChatMessage(line)).getJSON();
+				LugChatMessage lcm = new LugChatMessage(line);
+				logger.info("Rx: '"+lcm+"'");
+				messageQueue.add(lcm);
 				synchronized(messageQueue){
 					messageQueue.notify();
 				}
-				// JsonParser jp = Json.createParser(in);
-				// System.out.println("Has next? "+jp.hasNext());
-				//This is stupid. The Json parser/reader implementations are broken
-				//and will not block for data. Even attempting to check .hasNext() will
-				//throw a SocketException: Socket closed even when reading from the BufferedReader
-				//underlying the JsonParser blocks correctly.
-				// String line = in.readLine();
-				// if(line == null){
-				// 	System.out.println("read a null, killing client");
-				// 	notStopping = true;
-				// 	break;
-				// }
-				// Thread.sleep(0); //does sleeping for half a second kill it?
-				// System.out.println("Time: "+System.currentTimeMillis());
-				// System.out.println("Rx: '"+line+"'");
-				// jread = Json.createReader(new StringReader(line));
-				// latestMessage = jread.readObject();
-				// messageQueue.add(latestMessage);
-				// synchronized(messageQueue){
-				// 	messageQueue.notify();
-				// }
 			} catch(Exception e){ throw new RuntimeException(e); }
 		}
 	}
+	
+	private static String shortName(LugChatMessage lcm, int desiredCharacters){
+		int numBytes = desiredCharacters/2;
+		//md5 hash is 128 bits = 16 bytes
+		if(numBytes<=0) return "";
+		// if(numBytes%2 != 0) numBytes+=1; //shouldn't care if the number of BYTES is odd...
+		if(numBytes > 16) numBytes = 16;
+		//a hex digit is 16 bits
+		int numHexDigits = numBytes*2;
+		//base64 digits are 6 bits, minimum of 4 digits = 24 bits (or 3 bytes) per group
+		//should need no more than 5 groups of 4 (or 20) base64 digits
+		int numBase64Digits = 20;
+		char[] cbuff = new char[numHexDigits];
+		byte[] hashBytes = Arrays.copyOfRange(Base64.getDecoder().decode(lcm.getKeyHash().substring(0,numBase64Digits)),0,numHexDigits/2);
+		for(int i=0;i<hashBytes.length;i++){
+			cbuff[2*i] = hexChars[(hashBytes[i]>>4)&0x0f];
+			cbuff[2*i+1] = hexChars[(hashBytes[i])&0x0f];
+		}
+		return new String(cbuff);
+	}
 
-	public static void processMessageQueue(Vector<JsonObject> messageQueue){
-		// System.out.println("Beginning processing message queue thread.");
-		// System.out.print("\n>");
+	public static void processMessageQueue(Vector<LugChatMessage> messageQueue){
 		String serverPubKeyEncoded = null;
-		PublicKey serverPubKey = null;
-		Signature serverVerifier = null;
 		while(notStopping){
 			if(messageQueue.size()>0){
 				if(serverPubKeyEncoded == null){
-					// System.out.println("No server key set. Checking messages for valid server key in hello response.");
-					// System.out.print("\n>");
+					//if we haven't seen the server key yet, look for it in the messageQueue
 					for(int i=0;i<messageQueue.size();i++){
-						JsonObject message = messageQueue.get(i);
-						//TODO: replace all JsonObjects with LugChatMessages
-						LugChatMessage lcm = new LugChatMessage(message.toString());
+						LugChatMessage lcm = messageQueue.get(i);
 						if(lcm.getType()==LugChatMessage.Types.RESPONSE){
 							if(lcm.getResponseToType()==LugChatMessage.Types.HELLO){
 								serverPubKeyEncoded = lcm.getHelloResponseServerKey();
 							}
 						}
-						// if(message.getJsonObject("message").getString("type").equalsIgnoreCase("response")){
-						// 	if(message.getJsonObject("message").getString("response-to").equalsIgnoreCase("hello")){
-						// 		//grab key data from message
-						// 		String encodedServerKey = message.getJsonObject("message").getJsonObject("content").getString("server-key");
-						// 		//decode into key and save as serverPubKey
-						// 		try{
-						// 			KeyFactory kfac = KeyFactory.getInstance("RSA");
-						// 			serverPubKey = kfac.generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(encodedServerKey)));
-						// 			serverVerifier = Signature.getInstance("SHA512withRSA");
-						// 			serverVerifier.initVerify(serverPubKey);
-						// 			//delete message from messageQueue
-						// 			messageQueue.remove(i);
-						// 			//break the for loop
-						// 			break;
-						// 		} catch(Exception e){
-						// 			throw new RuntimeException("Error processing server public key", e);
-						// 		}
-						// 	}
-						// }
 					}
 					if(serverPubKeyEncoded == null){
 						try{
@@ -162,55 +75,19 @@ public class LugChatClient {
 							}
 						} catch(InterruptedException ie){ } //timeout OK, loops around
 					}
-					// if(serverPubKey==null){
-					// 	//looked through all the messages, but didn't find a hello response, sleep
-					// 	//until we get a new message and try again.
-					// 	try{
-					// 		synchronized(messageQueue){
-					// 			messageQueue.wait(2000);
-					// 		}
-					// 	} catch(InterruptedException ie){
-					// 		//timeout exception is OK, will just loop around
-					// 	}
-					// }
 				} else {
-					// System.out.println("Server key found. Processing message.");
-					// System.out.print("\n>");
-					//TODO: replace all JsonObjects with LugChatMessages
 					//pop a message
-					JsonObject message = messageQueue.remove(0);
+					LugChatMessage lcm = messageQueue.remove(0);
 					//verify sig
 					//TODO: Make a verifier for the appropriate key to handle relay messages
-					LugChatMessage lcm = new LugChatMessage(message.toString());
+					// LugChatMessage lcm = new LugChatMessage(message.toString());
 					boolean sigCheck = lcm.sigVerified(serverPubKeyEncoded);
-					// boolean sigCheck = false;
-					// try{
-					// 	serverVerifier.update(message.getJsonObject("message").toString().getBytes());
-					// 	sigCheck = serverVerifier.verify(Base64.getDecoder().decode(message.getString("sig")));
-					// } catch(SignatureException e){
-					// 	// System.out.println("exception when verifying signature: "+e);
-					// 	logger.warning("exception when verifying signature: "+e);						
-					// }
-					//figure out type
-					// String type = message.getJsonObject("message").getString("type");
-					//run appropriate method
-					// System.out.println("Message:");
-					// System.out.println(message);
-					// System.out.println("Verified: "+sigCheck);
-					// System.out.println("---");
-					// System.out.print("\n>");
-					// logger.info("Message:\n"+message+"\nVerified: "+sigCheck+"\n---\n");
 					logger.info("Message: "+lcm+" Verified: "+sigCheck);
 					if(lcm.getType()==LugChatMessage.Types.POST){
-						String from = lcm.getSendingNick()+"|"+lcm.getKeyHash().substring(0,4)+"|"+((sigCheck)?"+":"-");
+						String from = lcm.getSendingNick()+"|"+shortName(lcm,6)+"|"+((sigCheck)?"+":"-");
 						System.out.println("\n"+from+"> "+lcm.getPostContent());
 						System.out.print(">");
 					}
-					// if(type.equalsIgnoreCase("post")){
-					// 	String from = message.getJsonObject("message").getString("nick")+"|"+message.getString("sig").substring(0,4)+((sigCheck)?"+":"-");
-					// 	System.out.println("\n"+from+"> "+message.getJsonObject("message").getJsonObject("content").getString("post-content"));
-					// 	System.out.print(">");
-					// }
 				}
 			} else {
 				try{
@@ -225,13 +102,17 @@ public class LugChatClient {
 	}
 
 	//TODO: replace JsonObjects with LugChatMessages
-	public static void processMessageOutQueue(Vector<JsonObject> messageOutQueue, PrintWriter out){
+	public static void processMessageOutQueue(Vector<LugChatMessage> messageOutQueue, PrintWriter out){
 		while(notStopping){
 			if(messageOutQueue.size()>0){
-				JsonObject message = messageOutQueue.remove(0);
-				out.write(message+"\n"); out.flush();
+				// JsonObject message = messageOutQueue.remove(0);
+				LugChatMessage lcm = messageOutQueue.remove(0);
+				out.write(lcm+"\n"); out.flush();
 				//if is a disconnect message, update notStopping for everyone
-				if(message.getJsonObject("message").getString("type").equalsIgnoreCase("disconnect")){
+				// if(message.getJsonObject("message").getString("type").equalsIgnoreCase("disconnect")){
+				// 	notStopping = false;
+				// }
+				if(lcm.getType()==LugChatMessage.Types.DISCONNECT){
 					notStopping = false;
 				}
 			} else {
@@ -247,21 +128,21 @@ public class LugChatClient {
 	}
 
 	//TODO: replace JsonObjects with LugChatMessages
-	public static void processUserInput(Scanner scan, Vector<JsonObject> messageOutQueue, String nick, KeyPair keypair){
+	public static void processUserInput(Scanner scan, Vector<LugChatMessage> messageOutQueue, String nick, KeyPair keypair){
 		String userInput;
-		JsonObject msg;
+		// JsonObject msg;
 		LugChatMessage.LugChatMessageFactory lcmf = new LugChatMessage.LugChatMessageFactory(nick,keypair);
 		while(notStopping){
 			System.out.print(">");
 			userInput = scan.nextLine();
 			if(userInput.equalsIgnoreCase(".disconnect")){
 				// msg = makeMessage(makeMessageDataObject("disconnect",nick,makeDisconnectMessage()),sig);
-				msg = lcmf.makeDisconnectMessage().getJSON();
+				messageOutQueue.add(lcmf.makeDisconnectMessage());
 			} else{
 				// msg = makeMessage(makeMessageDataObject("post",nick,makePostMessage(userInput)),sig);
-				msg = lcmf.makePostMessage(userInput).getJSON();
+				messageOutQueue.add(lcmf.makePostMessage(userInput));
 			}
-			messageOutQueue.add(msg);
+			// messageOutQueue.add(msg);
 			synchronized(messageOutQueue){
 				messageOutQueue.notify();
 			}
@@ -307,8 +188,9 @@ public class LugChatClient {
 			Scanner scan = new Scanner(System.in);
 			String termIn;
 			notStopping = true;
-			Vector<JsonObject> messageQueue = new Vector<JsonObject>();
-			Vector<JsonObject> messageOutQueue = new Vector<JsonObject>();
+			// Vector<JsonObject> messageQueue = new Vector<JsonObject>();
+			Vector<LugChatMessage> messageQueue = new Vector<>();
+			Vector<LugChatMessage> messageOutQueue = new Vector<>();
 			//make hello message for the first thing in messageOutQueue
 			// JsonObject helloMsg = makeMessage(
 			// 	makeMessageDataObject(
@@ -317,10 +199,10 @@ public class LugChatClient {
 			// 		makeHelloMessage(Base64.getEncoder().encodeToString(keypair.getPublic().getEncoded())) //content
 			// 	),
 			// 	sig);
-			JsonObject helloMsg = LugChatMessage.makeHelloMessage(
+			LugChatMessage helloMsg = LugChatMessage.makeHelloMessage(
 				args[2],	//nick
 				keypair		//keypair
-			).getJSON();
+			);
 			messageOutQueue.add(helloMsg);
 			//start thread for parsing server messages
 			Thread psmThread = new Thread(){ public void run(){ parseServerMessages(in,messageQueue); }};
