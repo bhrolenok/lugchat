@@ -222,8 +222,17 @@ public class LugChatMessage {
 		return makeMessage(messageData,keypair);
 	}
 	//TODO: history response message
-	public static LugChatMessage makeHistoryResponseMessage(ArrayList<LugChatMessage> history, String origSig, KeyPair keypair){
-		throw new RuntimeException("Not Implemented");
+	public static LugChatMessage makeHistoryResponseMessage(List<LugChatMessage> history, String origSig, KeyPair keypair){
+		JsonArrayBuilder jab = Json.createArrayBuilder();
+		for(LugChatMessage lcm : history){
+			jab.add(lcm.getJSON());
+		}
+		JsonObject respMessageData = makeAcceptResponseMessage(
+			Types.HISTORY,
+			origSig,
+			Json.createObjectBuilder().add("msgList",jab.build()).build()
+		);
+		return makeMessage(respMessageData,keypair);
 	}
 
 	public static LugChatMessage makeReplyMessage(String nick, long postTime, String origSig, String replyContent, KeyPair keypair){
@@ -336,6 +345,20 @@ public class LugChatMessage {
 	//post messages
 	public String getPostContent(){
 		return getContent().getString("postContent");
+	}
+	//history messages
+	public long getHistoryStart(){
+		return Long.parseLong(getContent().getString("start"));
+	}
+	public long getHistoryEnd(){
+		return Long.parseLong(getContent().getString("end"));
+	}
+	public List<LugChatMessage> getHistoryList(){
+		ArrayList<LugChatMessage> rv = new ArrayList<>();
+		for(JsonValue jv : getContent().getJsonArray("msgList")){
+			rv.add(new LugChatMessage(jv.toString(),null));
+		}
+		return rv;
 	}
 
 	//server response accessors (NOTE: will throw RuntimeException on non RESPONSE type)

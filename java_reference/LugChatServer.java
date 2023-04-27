@@ -62,6 +62,16 @@ public class LugChatServer {
 					lcmResponse = LugChatMessage.makeSubscribeResponseMessage(oldest,latest,lcm.getSignature(), keypair);
 					subscribers.add(out); //TODO: check to make sure we're not subscribed multiple times?
 					break;
+				case HISTORY:
+					long start = lcm.getHistoryStart(), end = lcm.getHistoryEnd();
+					ArrayList<LugChatMessage> filteredMsgs = new ArrayList<>();
+					for(LugChatMessage tmpLCM : history){
+						if(tmpLCM.getReceivedTime() >= start && tmpLCM.getReceivedTime() <= end){
+							filteredMsgs.add(tmpLCM);
+						}
+					}
+					lcmResponse = LugChatMessage.makeHistoryResponseMessage(filteredMsgs,lcm.getSignature(),keypair);
+					break;
 				default:
 					lcmResponse = LugChatMessage.makeRejectResponseMessage(lcm.getType(),lcm.getSignature(),LugChatMessage.Reasons.FORMAT,keypair);
 				}

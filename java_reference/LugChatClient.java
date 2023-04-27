@@ -86,6 +86,12 @@ public class LugChatClient {
 						if(lcm.getResponseToType()==LugChatMessage.Types.SUBSCRIBE){
 							System.out.println("Subscribed.");
 							System.out.print(">");
+						} else if(lcm.getResponseToType()==LugChatMessage.Types.HISTORY){
+							System.out.println("Server history:");
+							for(LugChatMessage tmpLCM : lcm.getHistoryList()){
+								System.out.println(tmpLCM);
+							}
+							System.out.print(">");
 						}
 					}
 				}
@@ -128,6 +134,8 @@ public class LugChatClient {
 				messageOutQueue.add(lcmf.makeDisconnectMessage());
 			} else if(userInput.equalsIgnoreCase(".subscribe")){
 				messageOutQueue.add(lcmf.makeSubscribeMessage(0L));
+			} else if(userInput.equalsIgnoreCase(".history")){
+				messageOutQueue.add(lcmf.makeHistoryMessage(0,System.currentTimeMillis()));
 			}
 			else{
 				messageOutQueue.add(lcmf.makePostMessage(userInput));
