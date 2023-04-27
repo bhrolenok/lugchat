@@ -88,8 +88,14 @@ public class LugChatClient {
 							System.out.print(">");
 						} else if(lcm.getResponseToType()==LugChatMessage.Types.HISTORY){
 							System.out.println("Server history:");
-							for(LugChatMessage tmpLCM : lcm.getHistoryList()){
+							for(LugChatMessage tmpLCM : lcm.getHistoryResponseMessageList()){
 								System.out.println(tmpLCM);
+							}
+							System.out.print(">");
+						} else if(lcm.getResponseToType()==LugChatMessage.Types.USERS){
+							System.out.println("User list:");
+							for(LugChatMessage.UserData u : lcm.getUsersResponseUserList()){
+								System.out.println(u);
 							}
 							System.out.print(">");
 						}
@@ -136,6 +142,8 @@ public class LugChatClient {
 				messageOutQueue.add(lcmf.makeSubscribeMessage(0L));
 			} else if(userInput.equalsIgnoreCase(".history")){
 				messageOutQueue.add(lcmf.makeHistoryMessage(0,System.currentTimeMillis()));
+			} else if(userInput.equalsIgnoreCase(".users")){
+				messageOutQueue.add(lcmf.makeUsersMessage(0));
 			}
 			else{
 				messageOutQueue.add(lcmf.makePostMessage(userInput));

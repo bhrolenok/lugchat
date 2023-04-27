@@ -9,7 +9,7 @@ import java.security.spec.*;
 
 public class LugChatServer {
 
-	public static void handleClientConnection(Socket s, Vector<LugChatMessage> history, KeyPair keypair, Vector<PrintWriter> subscribers, Vector<LugChatMessage> relayQueue) throws Exception{
+	public static void handleClientConnection(Socket s, Vector<LugChatMessage> history, KeyPair keypair, Vector<PrintWriter> subscribers, Vector<LugChatMessage> relayQueue, Vector<LugChatMessage.UserData> users) throws Exception{
 		System.out.println("Client connected: "+s.getInetAddress()+":"+s.getPort());
 		PrintWriter out = new PrintWriter(s.getOutputStream(), true);
 		// subscribers.add(out);
@@ -17,19 +17,28 @@ public class LugChatServer {
 		String inLine, outLine;
 		PublicKey clientPubKey = null;
 		String clientPubKeyEncoded = null;
-
+		LugChatMessage.UserData userdata = null;
 		while(true){
 			inLine = in.readLine();
 			if(inLine == null) break;
 			System.out.println("Rx "+s.getInetAddress()+":"+s.getPort()+" says '"+inLine+"'");
 			LugChatMessage lcm = new LugChatMessage(inLine, System.currentTimeMillis());
 			if(clientPubKeyEncoded == null && lcm.getType()==LugChatMessage.Types.HELLO){
-				System.out.println("Received first hello, storing key:");
+				System.out.println("Received first hello, storing key, recording user:");
 				clientPubKeyEncoded = lcm.getHelloPublicKey();
+				userdata = new LugChatMessage.UserData(clientPubKeyEncoded,lcm.getSendingNick(),lcm.getReceivedTime(),"online");
+				if(users.contains(userdata)){
+					userdata = users.get(users.indexOf(userdata));
+					//TODO: if someone connects with the same nick and key, need to figure out
+					//what to do with status
+					userdata.status = "online";
+					userdata.joinDate = lcm.getReceivedTime();
+				} else {
+					users.add(userdata);
+				}
 			}
 			//verify signature
 			boolean sigCheck = lcm.sigVerified(clientPubKeyEncoded);
-			// JsonObject response = null; //TODO: replace all JsonObjects with LugChatMessages
 			LugChatMessage lcmResponse = null;
 			if(sigCheck){
 				System.out.println("Message verified.");
@@ -72,6 +81,16 @@ public class LugChatServer {
 					}
 					lcmResponse = LugChatMessage.makeHistoryResponseMessage(filteredMsgs,lcm.getSignature(),keypair);
 					break;
+				case USERS:
+					long since = lcm.getUsersSince();
+					ArrayList<LugChatMessage.UserData> filteredUsers = new ArrayList<>();
+					for(LugChatMessage.UserData u : users){
+						if(u.joinDate >= since){
+							filteredUsers.add(u);
+						}
+					}
+					lcmResponse = LugChatMessage.makeUsersResponseMessage(filteredUsers,lcm.getSignature(),keypair);
+					break;
 				default:
 					lcmResponse = LugChatMessage.makeRejectResponseMessage(lcm.getType(),lcm.getSignature(),LugChatMessage.Reasons.FORMAT,keypair);
 				}
@@ -88,6 +107,10 @@ public class LugChatServer {
 		System.out.println("Closing connection: "+s.getInetAddress()+":"+s.getPort());
 		System.out.println("Time: "+System.currentTimeMillis());
 		subscribers.removeElement(out);
+		// users.remove(userdata);
+		//TODO: if multiple users sign on with the same nick and key over different connections,
+		//need to figure out how to update status. Might need another message!
+		userdata.status = "offline";
 		s.close();
 		System.out.println("Connection closed");
 	}
@@ -146,13 +169,14 @@ public class LugChatServer {
 		ArrayList<Thread> connections = new ArrayList<>();
 		Vector<PrintWriter> subscribers = new Vector<>();
 		Vector<LugChatMessage> relayQueue = new Vector<>();
+		Vector<LugChatMessage.UserData> userset = new Vector<>();
 		Thread relayThread;
 		try(ServerSocket servSock = new ServerSocket(listenPort); ){
 			relayThread = new Thread(){public void run(){ relayToSubscribers(relayQueue,subscribers); }};
 			relayThread.start();
 			while(keepAcceptingConnections){
 				Socket established = servSock.accept();
-				Thread t = new Thread(){public void run(){ try{ handleClientConnection(established,messageHistory,keypair,subscribers, relayQueue);} catch(Exception e){ throw new RuntimeException("Exception in handleClientConnection", e); } }};
+				Thread t = new Thread(){public void run(){ try{ handleClientConnection(established,messageHistory,keypair,subscribers, relayQueue, userset);} catch(Exception e){ throw new RuntimeException("Exception in handleClientConnection", e); } }};
 				connections.add(t);
 				t.start();
 			}

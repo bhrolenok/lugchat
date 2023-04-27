@@ -77,6 +77,46 @@ public class LugChatMessage {
 			throw new RuntimeException("Unrecognized reason type: \""+s+"\"");
 		}
 	}
+	public static class UserData {
+		public String publicKeyBase64;
+		public String nick;
+		public Long joinDate;
+		public String status;
+
+		public UserData(String pk, String n, Long jd, String s){
+			publicKeyBase64 = pk;
+			nick = n;
+			joinDate = jd;
+			status = s;
+		}
+
+		public JsonObject toJSON(){
+			return Json.createObjectBuilder()
+				.add("publicKey",publicKeyBase64)
+				.add("nick",nick)
+				.add("joinDate",joinDate.toString())
+				.add("status",status)
+				.build();
+		}
+		public String toString(){
+			return "[nick:"+nick+", status:"+status+", joined:"+joinDate+", key:"+publicKeyBase64.substring(0,8)+"...]";
+		}
+		public static UserData fromJSON(JsonObject jobj){
+			return new UserData(
+				jobj.getString("publicKey"),
+				jobj.getString("nick"),
+				Long.parseLong(jobj.getString("joinDate")),
+				jobj.getString("status")
+			);
+		}
+		public boolean equals(Object o){
+			if(o instanceof UserData){
+				UserData tmp=(UserData)o;
+				return tmp.nick.equals(nick) && tmp.publicKeyBase64.equals(publicKeyBase64);
+			}
+			return false;
+		}
+	}
 
 	protected JsonObject jsonRepresentation;
 	//receivedTime may be null. Useful for servers keeping track of when they received messages
@@ -151,7 +191,7 @@ public class LugChatMessage {
 		JsonObject messageData = makeMessageData(
 			Types.HELLO,
 			nick,
-			Json.createObjectBuilder().add("publicKey",base64PubKey).add("keyHash",computedKeyHash).build() //TODO: cammelCase
+			Json.createObjectBuilder().add("publicKey",base64PubKey).add("keyHash",computedKeyHash).build()
 		);
 		return makeMessage(messageData,keypair);
 	}
@@ -191,9 +231,17 @@ public class LugChatMessage {
 		);
 		return makeMessage(messageData,keypair);
 	}
-	//TODO: users response message
-	public static LugChatMessage makeUsersResponseMessage(String origSig, KeyPair keypair){
-		throw new RuntimeException("Not implemented");
+	public static LugChatMessage makeUsersResponseMessage(List<UserData> users, String origSig, KeyPair keypair){
+		JsonArrayBuilder jab = Json.createArrayBuilder();
+		for(UserData u : users){
+			jab.add(u.toJSON());
+		}
+		JsonObject respMessageData = makeAcceptResponseMessage(
+			Types.USERS,
+			origSig,
+			Json.createObjectBuilder().add("userList",jab.build()).build()
+		);
+		return makeMessage(respMessageData,keypair);
 	}
 
 	public static LugChatMessage makePostMessage(String nick, String postContent, KeyPair keypair){
@@ -221,7 +269,6 @@ public class LugChatMessage {
 		);
 		return makeMessage(messageData,keypair);
 	}
-	//TODO: history response message
 	public static LugChatMessage makeHistoryResponseMessage(List<LugChatMessage> history, String origSig, KeyPair keypair){
 		JsonArrayBuilder jab = Json.createArrayBuilder();
 		for(LugChatMessage lcm : history){
@@ -353,17 +400,13 @@ public class LugChatMessage {
 	public long getHistoryEnd(){
 		return Long.parseLong(getContent().getString("end"));
 	}
-	public List<LugChatMessage> getHistoryList(){
-		ArrayList<LugChatMessage> rv = new ArrayList<>();
-		for(JsonValue jv : getContent().getJsonArray("msgList")){
-			rv.add(new LugChatMessage(jv.toString(),null));
-		}
-		return rv;
+	//users messages
+	public long getUsersSince(){
+		return Long.parseLong(getContent().getString("since"));
 	}
 
 	//server response accessors (NOTE: will throw RuntimeException on non RESPONSE type)
 	public Types getResponseToType(){
-		//TODO: update to cammelCase
 		return Types.fromString(getJSON().getJsonObject("message").getString("responseToType"));
 	}
 	public String getOriginalSignature(){
@@ -376,7 +419,21 @@ public class LugChatMessage {
 		return Reasons.fromString(getJSON().getJsonObject("message").getString("reason"));
 	}
 	public String getHelloResponseServerKey(){
-		//TODO: update to cammelCase
 		return getContent().getString("serverKey");
 	}
+	public List<LugChatMessage> getHistoryResponseMessageList(){
+		ArrayList<LugChatMessage> rv = new ArrayList<>();
+		for(JsonValue jv : getContent().getJsonArray("msgList")){
+			rv.add(new LugChatMessage(jv.toString(),null));
+		}
+		return rv;
+	}
+	public List<UserData> getUsersResponseUserList(){
+		ArrayList<UserData> rv = new ArrayList<>();
+		for(JsonObject jobj : getContent().getJsonArray("userList").getValuesAs(JsonObject.class)){
+			rv.add(UserData.fromJSON(jobj));
+		}
+		return rv;
+	}
+
 }
