@@ -15,7 +15,7 @@ pub fn serialize<S: Serializer>(
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     // (datetime.unix_timestamp() * 1000 + datetime.millisecond() as i64).serialize(serializer)
-    let t = (datetime.unix_timestamp() * 1000 + datetime.millisecond() as i64);
+    let t = datetime.unix_timestamp() * 1000 + datetime.millisecond() as i64;
     println!("Serialized: {}", t);
     t.serialize(serializer)
 }

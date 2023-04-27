@@ -2,143 +2,213 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
-use futures_util::{Sink, StreamExt, pin_mut};
-use futures_util::stream::{SplitSink, SplitStream, TryStreamExt};
+use base64::Engine;
+use base64::engine::general_purpose as Base64;
+use futures_util::{SinkExt, StreamExt};
+use openssl::hash::MessageDigest;
+use openssl::sign::Signer;
 use serde_json::Value;
+use time::OffsetDateTime;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc::{Receiver, Sender, self}, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::{Error as TungsteniteError, Message};
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream, connect_async_tls_with_config, Connector};
 use tokio_util::sync::CancellationToken;
+use url::Url;
 
-use crate::ChatError;
-use crate::protocol::SignedEnvelope;
+use crate::{ChatError, utc_as_millis};
+use crate::configuration::Configuration;
+use crate::protocol::{SignedEnvelope, ServerMessage, ServerAcceptCode};
 
 type ChatWebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
-type WsSink = SplitSink<ChatWebSocket, Message>;
-type WsStream = SplitStream<ChatWebSocket>;
 
-type MessageMap = Arc<Mutex<HashMap<String,String>>>;
+type MessageMap = Arc<Mutex<HashMap<String,oneshot::Sender<ServerMessage>>>>;
+
+// FnOnce(ServerMessage)
 
 /// A wrapper around the websocket connection to a chat server.
-///
-/// 
 #[derive(Debug)]
 pub struct Connection {
+    configuration: Configuration,
     sent_msg_map: MessageMap,
 
     // Websocket thread handles and controllers
-    // ws_read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-    // ws_send: SplitSink<ChatWebSocket, Message>,
-    in_thread: JoinHandle<WsStream>,
-    out_thread: JoinHandle<WsSink>,
     cancel_token: CancellationToken,
-
-    // channel_tx: Option<Sender<Value>>,
-    // channel_mx: Receiver<Value>,
+    send_channel: mpsc::Sender<CommunicationPackage>,
+    ws_thread: JoinHandle<ChatWebSocket>,
 }
 
+#[allow(dead_code)]
 impl Connection {
     /// Creates a new Connection to the associated URL.
-    pub async fn connect(url: url::Url) -> Result<Connection, ChatError> {
+    pub async fn connect(config: Configuration) -> Result<Connection, ChatError> {
+
+        let url = Url::parse(config.get_server_url().as_str());
+        if url.is_err() {
+            return Err(ChatError::Parsing(url.err().unwrap()));
+        }
+        let url = url.unwrap();
+        let connector = get_tls_configuration(&url);
+
         // Create the websocket (this performs the WS handshake but not the protocol handshake)
-        let ws: ChatWebSocket = match connect_async_tls_with_config(url, None, get_tls_configuration()).await {
+        let ws: ChatWebSocket = match connect_async_tls_with_config(url, None, connector).await {
             Ok(ws) => ws.0,
             Err(err) => return Err(ChatError::IO(err)),
         };
-        let (send, read) = ws.split();
 
-        let sent_msg_map: MessageMap = MessageMap::new(Mutex::new(HashMap::new()));
         let cancel_token = CancellationToken::new();
-
-
+        let sent_msg_map: MessageMap = MessageMap::new(Mutex::new(HashMap::new()));
+        let (tx, mut rx) = mpsc::channel::<CommunicationPackage>(10);
+        
+        // Create a thread to handle websocket functionality
         let map = sent_msg_map.clone();
         let halt_token = cancel_token.child_token();
-        let in_thread = tokio::spawn(async move {
-            while !halt_token.is_cancelled() {
-                let msg = match read.try_next().await {
-                    Ok(opt) =>  {
-                        match opt {
-                            Some(msg) => msg,
-                            None => return read,
+        let ws_thread: JoinHandle<ChatWebSocket> = tokio::spawn(async move {
+            let mut is_running: bool = true;
+            let (mut sink, mut stream) = ws.split();
+            while is_running {
+                tokio::select! {
+                    response = stream.next() => {
+                        let msg: Message = response.unwrap().unwrap(); // FIXME
+
+                        match msg {
+                            Message::Text(raw_json) => {
+                                let envelope: Result<SignedEnvelope,_> = serde_json::from_str(raw_json.as_str());
+                                if envelope.is_ok() {
+                                    let envelope = envelope.unwrap();
+                                    //TODO sig verification
+
+                                    if envelope.is_server_response() {
+                                        let resp = envelope.to_server_message();
+                                        let sender = map.lock().unwrap().remove(&resp.orig_sig);
+                                        if sender.is_some() {
+                                            let _ = sender.unwrap().send(resp);
+                                        }
+                                    } else {
+                                        let msg = envelope.to_message();
+                                        // TODO: Message handling
+                                        println!("{}", msg)
+                                    }
+                                }
+                            },
+                            Message::Close(_) => {
+                                halt_token.cancel();
+                                is_running = false;
+                            }
+                            _ => {}, // TODO: Binary?
                         }
-                    },
-                    Err(e) => {
-                        continue;
-                    },
-                };
-        
-                // TODO - handle server message
-                match msg {
-                    Message::Text(raw_json) => {
-                        let result: Result<SignedEnvelope, serde_json::Error> = serde_json::from_str(raw_json.as_str());
-        
-                        if result.is_ok() {
-                            let envelope = result.unwrap();
-                            //TODO signature validation
+                    }
+                    to_send = rx.recv() => {
+                        if to_send.is_some() {
+                            let pkg: CommunicationPackage = to_send.unwrap();
+                            match sink.send(Message::text(pkg.envelope.to_string())).await {
+                                Ok(_) => { map.lock().unwrap().insert(pkg.signature, pkg.sender); },
+                                Err(_) => {},
+                            }
                         }
-        
-                        match map.lock().unwrap().get("") {
-                            Some(_) => todo!(),
-                            None => todo!(),
-                        };
-                    },
-                    Message::Close(_) => break,
-                    _ => continue,
+                    }
+                    _ = halt_token.cancelled() => {
+                        is_running = false;
+                    }
                 }
             }
-            return read;
+            return sink.reunite(stream).unwrap();
         });
 
-        // Create a thread for handling the send of messages.
-        let (tx, rx) = mpsc::channel::<Value>(10);
-        let child_token = cancel_token.child_token();
-        let out_thread = tokio::spawn(async move {
-            // Use closed channel to signify
-            while let Some(next) = rx.recv().await {
-                send.start_send(Message::text(next.to_string()));
-            }
-
-            // Send back the Sink to be reunited and closed correctly
-            send
-        });
-        
-        pin_mut!(out_thread, in_thread);
-        let conn = Connection {
-            in_thread,
-            out_thread,
+        let mut conn = Connection {
+            configuration: config.clone(),
             cancel_token,
-            // ws_send: send,
-            // channel_tx: Some(tx),
-            // channel_mx: rx,
+            send_channel: tx,
             sent_msg_map,
+            ws_thread,
         };
+
+        // Let's send a hello and subscribe and verify that we've connected
+        let keypair = config.get_private_key();
+        let pub_key = keypair.public_key_to_pem().unwrap();
+
+        // Generate and send the 'hello' message
+        let pub_key = String::from_utf8_lossy(&pub_key);
+        let hello = serde_json::json!({
+            "type": "hello",
+            "nick": config.get_nick(),
+            "time": utc_as_millis!(),
+            "content": {
+                "publicKey": pub_key,
+            }
+        });
+
+        let resp = conn.send(hello).await;
+        if resp.is_err() {
+            return Err(resp.unwrap_err());
+        }
+        let resp = resp.unwrap();
+        if resp.response == ServerAcceptCode::Reject {
+            return Err(ChatError::Protocol(resp.reason.unwrap()));
+        }
 
         Ok(conn)
     }
 
     /// Destroys the underlying resources within a Connection safely.
     pub async fn close(conn: Connection) -> Result<(), TungsteniteError> {
+
+        // Shutdown the worker thread
         conn.cancel_token.cancel();
-        let (send, read): (Result<WsSink, _>, Result<WsStream, _>) = futures_util::join!(conn.out_thread, conn.in_thread);
-        let ws = send.unwrap().reunite(read.unwrap());
+        let ws: Result<ChatWebSocket, _> = conn.ws_thread.await;
         if ws.is_ok() {
-            ws.unwrap().close(None).await?
+            let mut ws = ws.unwrap();
+
+            // TODO: Send disconnect
+            // let _ = ws.send(serde_json::json!({
+            //     "type": "disconnect",
+            //     "nick": conn.configuration.get_nick(),
+            //     "time": utc_as_millis!(),
+            // })).await;
+
+            // Gracefully close the websocket
+            ws.close(None).await?
         }
+        
         Ok(())
     }
 
-    pub fn send(request: Value) {
-        todo!()
+    pub async fn send(&mut self, request: Value) -> Result<ServerMessage, ChatError> {
+        let keypair = self.configuration.get_private_key();
+
+        let mut signer = Signer::new(MessageDigest::sha512(), &keypair).unwrap();
+        signer.update(request.to_string().as_bytes()).unwrap();
+
+        let signature = Base64::STANDARD_NO_PAD.encode(signer.sign_to_vec().unwrap());
+        let envelope = serde_json::json!({
+            "message": request,
+            "sig": signature,
+            "keyHash": self.configuration.get_key_hex(),
+            "protocolVersion": 1,
+        });
+
+        let (sender, rx) = oneshot::channel::<ServerMessage>();
+        let _result = self.send_channel.send(CommunicationPackage{ envelope, signature, sender }).await;
+
+        rx.await.map_err(|_| ChatError::Communication())
     }
 
-    fn create_signed_message() -> (String, ) {
-        todo!()
-    }
+    // pub async fn send_and_process<F>(&mut self, request: Value, response_handler: F)
+    //     where F: FnOnce(ServerMessage) -> () 
+    // {
+    // }
+
 }
 
-fn get_tls_configuration() -> Option<Connector> {
+
+struct CommunicationPackage {
+    signature: String,
+    envelope: Value,
+    sender: oneshot::Sender<ServerMessage>,
+}
+
+fn get_tls_configuration(_: &Url) -> Option<Connector> {
     let connector = native_tls::TlsConnector::builder()
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)

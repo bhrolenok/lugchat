@@ -5,8 +5,6 @@
 //! then convert those into objects after the fact.
 //! 
 //! Database objects and translation is located elsewhere.
-#[allow(dead_code)]
-
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use serde::{Serialize, Deserialize};
@@ -22,8 +20,8 @@ type Base64 = String;
 pub struct SignedEnvelope<'a> {
     #[serde(borrow)]
     message: &'a RawValue,
-    sig: Base64,
-    key_hash: String,
+    pub sig: Base64,
+    pub key_hash: String,
     pub protocol_version: u8,
 }
 
@@ -38,7 +36,8 @@ impl SignedEnvelope<'_> {
         msg
     }
     pub fn to_server_message(&self) -> ServerMessage {
-        todo!()
+        let msg: ServerMessage = serde_json::from_str(self.message.get()).unwrap();
+        msg
     }
 }
 
@@ -49,7 +48,7 @@ pub struct NicknameDetails {
     pub time: OffsetDateTime,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct UnmappedMessage {
     #[serde(rename="type")]
     pub msg_type: MessageType,
@@ -58,6 +57,7 @@ pub struct UnmappedMessage {
     pub content: HashMap<String, Value>,
 }
 
+#[allow(dead_code)]
 impl UnmappedMessage {
     pub fn new(msg_type: MessageType, nick: String) -> UnmappedMessage {
         UnmappedMessage { 
@@ -94,31 +94,41 @@ pub enum MessageType {
     Hello, History, Post, Subscribe
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-enum ServerReason {
+pub enum ServerReason {
     None, Format, Signature, Access, Exception
 }
 
-#[derive(Deserialize)]
+impl Display for ServerReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Server Reject")
+            .field("Reason", &self)
+            .finish()
+    }
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-enum ServerAcceptCode {
+pub enum ServerAcceptCode {
     Accept,
     Reject,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ServerMessage {
-    response_to_type: MessageType,
-    orig_sig: Base64,
-    response: ServerAcceptCode,
-    reason: ServerReason,
+pub struct ServerMessage {
+    pub response_to_type: MessageType,
+    pub orig_sig: Base64,
+    pub response: ServerAcceptCode,
+    pub reason: Option<ServerReason>,
     #[serde(with = "crate::utils::timestamp")]
-    time: OffsetDateTime,
-    content: HashMap<String, Value>,
+    pub time: OffsetDateTime,
+    pub content: HashMap<String, Value>,
 }
 
+impl ServerMessage {
+}
 
 #[cfg(test)]
 mod tests {
