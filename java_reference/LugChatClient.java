@@ -12,18 +12,13 @@ import java.nio.*;
 public class LugChatClient {
 
 	public static boolean notStopping;
-
 	public static Logger logger;
-
 	public static final char[] hexChars = "0123456789abcdef".toCharArray();
 
 	public static void parseServerMessages(BufferedReader in, Vector<LugChatMessage> messageQueue){
-		// JsonObject latestMessage = null;
 		while(notStopping){
 			try{
 				String line = in.readLine();
-				//TODO: replace all JsonObject's with LugChatMessages
-				// latestMessage = (new LugChatMessage(line)).getJSON();
 				LugChatMessage lcm = new LugChatMessage(line);
 				logger.info("Rx: '"+lcm+"'");
 				messageQueue.add(lcm);
@@ -80,7 +75,6 @@ public class LugChatClient {
 					LugChatMessage lcm = messageQueue.remove(0);
 					//verify sig
 					//TODO: Make a verifier for the appropriate key to handle relay messages
-					// LugChatMessage lcm = new LugChatMessage(message.toString());
 					boolean sigCheck = lcm.sigVerified(serverPubKeyEncoded);
 					logger.info("Message: "+lcm+" Verified: "+sigCheck);
 					if(lcm.getType()==LugChatMessage.Types.POST){
@@ -94,24 +88,17 @@ public class LugChatClient {
 					synchronized(messageQueue){
 						messageQueue.wait(2000);						
 					}
-				} catch(InterruptedException ie){
-					//timeout exception is OK, just loop around
-				}
+				} catch(InterruptedException ie){ } //timeout exception is OK, just loop around
 			}
 		}
 	}
 
-	//TODO: replace JsonObjects with LugChatMessages
 	public static void processMessageOutQueue(Vector<LugChatMessage> messageOutQueue, PrintWriter out){
 		while(notStopping){
 			if(messageOutQueue.size()>0){
-				// JsonObject message = messageOutQueue.remove(0);
 				LugChatMessage lcm = messageOutQueue.remove(0);
 				out.write(lcm+"\n"); out.flush();
 				//if is a disconnect message, update notStopping for everyone
-				// if(message.getJsonObject("message").getString("type").equalsIgnoreCase("disconnect")){
-				// 	notStopping = false;
-				// }
 				if(lcm.getType()==LugChatMessage.Types.DISCONNECT){
 					notStopping = false;
 				}
@@ -120,29 +107,22 @@ public class LugChatClient {
 					synchronized(messageOutQueue){
 						messageOutQueue.wait(2000);
 					}
-				} catch(InterruptedException ie){
-					//timeout exception is OK, just loop around
-				}
+				} catch(InterruptedException ie){ } //timeout exception is OK, just loop around
 			}
 		}
 	}
 
-	//TODO: replace JsonObjects with LugChatMessages
 	public static void processUserInput(Scanner scan, Vector<LugChatMessage> messageOutQueue, String nick, KeyPair keypair){
 		String userInput;
-		// JsonObject msg;
 		LugChatMessage.LugChatMessageFactory lcmf = new LugChatMessage.LugChatMessageFactory(nick,keypair);
 		while(notStopping){
 			System.out.print(">");
 			userInput = scan.nextLine();
 			if(userInput.equalsIgnoreCase(".disconnect")){
-				// msg = makeMessage(makeMessageDataObject("disconnect",nick,makeDisconnectMessage()),sig);
 				messageOutQueue.add(lcmf.makeDisconnectMessage());
 			} else{
-				// msg = makeMessage(makeMessageDataObject("post",nick,makePostMessage(userInput)),sig);
 				messageOutQueue.add(lcmf.makePostMessage(userInput));
 			}
-			// messageOutQueue.add(msg);
 			synchronized(messageOutQueue){
 				messageOutQueue.notify();
 			}
@@ -154,7 +134,6 @@ public class LugChatClient {
 			Socket s = new Socket(args[0],Integer.parseInt(args[1]));
 			PrintWriter out = new PrintWriter(s.getOutputStream(),true);
 			BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));
-			// InputStream in = s.getInputStream();
 		) {
 			//logging
 			logger = Logger.getLogger(LugChatClient.class.getName());
@@ -188,39 +167,27 @@ public class LugChatClient {
 			Scanner scan = new Scanner(System.in);
 			String termIn;
 			notStopping = true;
-			// Vector<JsonObject> messageQueue = new Vector<JsonObject>();
 			Vector<LugChatMessage> messageQueue = new Vector<>();
 			Vector<LugChatMessage> messageOutQueue = new Vector<>();
 			//make hello message for the first thing in messageOutQueue
-			// JsonObject helloMsg = makeMessage(
-			// 	makeMessageDataObject(
-			// 		"hello", //type
-			// 		args[2], //nick
-			// 		makeHelloMessage(Base64.getEncoder().encodeToString(keypair.getPublic().getEncoded())) //content
-			// 	),
-			// 	sig);
 			LugChatMessage helloMsg = LugChatMessage.makeHelloMessage(
 				args[2],	//nick
 				keypair		//keypair
 			);
 			messageOutQueue.add(helloMsg);
-			//start thread for parsing server messages
+			//Thread for parsing server messages
 			Thread psmThread = new Thread(){ public void run(){ parseServerMessages(in,messageQueue); }};
-			//start thread for handling user input
+			//Thread for handling user input
 			Thread puiThread = new Thread(){ public void run(){ processUserInput(scan,messageOutQueue,args[2], keypair); }};
-			//start thread for processing INCOMING messages
+			//Thread for processing INCOMING messages
 			Thread pmqThread = new Thread(){ public void run(){ processMessageQueue(messageQueue); }};
-			//start thread for processing OUTGOING messages
+			//Thread for processing OUTGOING messages
 			Thread pmoqThread = new Thread(){ public void run(){ processMessageOutQueue(messageOutQueue,out); }};
+			//Start threads
+			psmThread.start(); pmqThread.start(); pmoqThread.start(); puiThread.start();
 			//join threads with shared reader/writer/stream objects
-			psmThread.start();
-			pmqThread.start();
-			pmoqThread.start();
-			puiThread.start();
-			psmThread.join();
-			pmqThread.join();
-			puiThread.join();
-			pmoqThread.join();
+			psmThread.join(); pmqThread.join(); puiThread.join(); pmoqThread.join();
+			//finalize the logger
 			logout.flush();
 			logout.close();
 		} catch(Exception e){
