@@ -79,12 +79,16 @@ public class LugChatMessage {
 	}
 
 	protected JsonObject jsonRepresentation;
+	//receivedTime may be null. Useful for servers keeping track of when they received messages
+	protected Long receivedTime;
+	public Long getReceivedTime(){ return receivedTime; }
 
-	public LugChatMessage(String jsonFormattedString){
-		this(Json.createReader(new StringReader(jsonFormattedString)).readObject());
+	public LugChatMessage(String jsonFormattedString, Long rtime){
+		this(Json.createReader(new StringReader(jsonFormattedString)).readObject(),rtime);
 	}
-	protected LugChatMessage(JsonObject jsonObject){
+	protected LugChatMessage(JsonObject jsonObject, Long rtime){
 		jsonRepresentation = jsonObject;
+		receivedTime = rtime;
 	}
 
 	public JsonObject getJSON(){ return jsonRepresentation; }
@@ -108,7 +112,7 @@ public class LugChatMessage {
 				.add("protocolVersion","1")
 				.add("keyHash",Base64.getEncoder().encodeToString(md.digest(kp.getPublic().getEncoded())))
 				.build();
-			return new LugChatMessage(msg);
+			return new LugChatMessage(msg,null);
 		} catch(Exception e){
 			throw new RuntimeException("Error constructing message", e);
 		}

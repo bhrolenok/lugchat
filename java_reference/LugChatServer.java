@@ -12,7 +12,7 @@ public class LugChatServer {
 	public static void handleClientConnection(Socket s, Vector<LugChatMessage> history, KeyPair keypair, Vector<PrintWriter> subscribers, Vector<LugChatMessage> relayQueue) throws Exception{
 		System.out.println("Client connected: "+s.getInetAddress()+":"+s.getPort());
 		PrintWriter out = new PrintWriter(s.getOutputStream(), true);
-		subscribers.add(out);
+		// subscribers.add(out);
 		BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));
 		String inLine, outLine;
 		PublicKey clientPubKey = null;
@@ -22,8 +22,7 @@ public class LugChatServer {
 			inLine = in.readLine();
 			if(inLine == null) break;
 			System.out.println("Rx "+s.getInetAddress()+":"+s.getPort()+" says '"+inLine+"'");
-			LugChatMessage lcm = new LugChatMessage(inLine);
-
+			LugChatMessage lcm = new LugChatMessage(inLine, System.currentTimeMillis());
 			if(clientPubKeyEncoded == null && lcm.getType()==LugChatMessage.Types.HELLO){
 				System.out.println("Received first hello, storing key:");
 				clientPubKeyEncoded = lcm.getHelloPublicKey();
@@ -49,14 +48,28 @@ public class LugChatServer {
 				case DISCONNECT:
 					lcmResponse = LugChatMessage.makeDisconnectResponseMessage(lcm.getSignature(),keypair);
 					break;
+				case SUBSCRIBE:
+					Long oldest=null, latest=null;
+					for(LugChatMessage tmpLcm : history){
+						Long tmpTime = tmpLcm.getReceivedTime();
+						if(tmpTime != null){
+							if(oldest == null || oldest>tmpTime) oldest = tmpTime;
+							if(latest == null || latest < tmpTime) latest = tmpTime;
+						}
+					}
+					if(oldest == null) oldest = 0L;
+					if(latest == null) latest = 0L;
+					lcmResponse = LugChatMessage.makeSubscribeResponseMessage(oldest,latest,lcm.getSignature(), keypair);
+					subscribers.add(out); //TODO: check to make sure we're not subscribed multiple times?
+					break;
 				default:
 					lcmResponse = LugChatMessage.makeRejectResponseMessage(lcm.getType(),lcm.getSignature(),LugChatMessage.Reasons.FORMAT,keypair);
 				}
+				history.add(lcm); //only add messages that pass their sig check
 			} else {
 				System.out.println("Message verification failed.");
 				lcmResponse = LugChatMessage.makeRejectResponseMessage(lcm.getType(), lcm.getSignature(), LugChatMessage.Reasons.SIGNATURE, keypair);
 			}
-			// history.add(inLine);
 			synchronized(out){
 				out.write(lcmResponse+"\n");
 				out.flush();

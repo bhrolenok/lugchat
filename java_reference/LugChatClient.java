@@ -19,7 +19,7 @@ public class LugChatClient {
 		while(notStopping){
 			try{
 				String line = in.readLine();
-				LugChatMessage lcm = new LugChatMessage(line);
+				LugChatMessage lcm = new LugChatMessage(line, System.currentTimeMillis());
 				logger.info("Rx: '"+lcm+"'");
 				messageQueue.add(lcm);
 				synchronized(messageQueue){
@@ -81,6 +81,12 @@ public class LugChatClient {
 						String from = lcm.getSendingNick()+"|"+shortName(lcm,6)+"|"+((sigCheck)?"+":"-");
 						System.out.println("\n"+from+"> "+lcm.getPostContent());
 						System.out.print(">");
+					} else if(lcm.getType()==LugChatMessage.Types.RESPONSE){
+						//handle response messages
+						if(lcm.getResponseToType()==LugChatMessage.Types.SUBSCRIBE){
+							System.out.println("Subscribed.");
+							System.out.print(">");
+						}
 					}
 				}
 			} else {
@@ -120,7 +126,10 @@ public class LugChatClient {
 			userInput = scan.nextLine();
 			if(userInput.equalsIgnoreCase(".disconnect")){
 				messageOutQueue.add(lcmf.makeDisconnectMessage());
-			} else{
+			} else if(userInput.equalsIgnoreCase(".subscribe")){
+				messageOutQueue.add(lcmf.makeSubscribeMessage(0L));
+			}
+			else{
 				messageOutQueue.add(lcmf.makePostMessage(userInput));
 			}
 			synchronized(messageOutQueue){
