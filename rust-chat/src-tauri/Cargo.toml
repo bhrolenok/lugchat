@@ -14,8 +14,22 @@ tauri-build = { version = "1.2", features = [] }
 
 [dependencies]
 tauri = { version = "1.2", features = ["shell-open"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { version="1.0.160", features = ["derive"] }
+serde_json = { version="1.0.96", features = ["raw_value"]}
+
+base64 = "0.21.0"
+futures-util = { version = "0.3.28", features = ["async-await", "std"] }
+hex = { version = "0.4.3", features = ["serde"] }
+native-tls = "0.2.11"
+openssl = "0.10.50"
+time = { version = "0.3.20", features = ["macros", "serde"]}
+tokio = { version = "1.27.0", features = ["io-util", "macros", "rt-multi-thread", "sync"]}
+tokio-tungstenite = { version = "0.18.0", features = ["native-tls"]}
+tokio-util = "0.7.7"
+url = "2.3.1"
+
+[dev-dependencies]
+ctor = "0.2.0"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
