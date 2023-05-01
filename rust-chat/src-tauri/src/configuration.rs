@@ -1,5 +1,6 @@
 use std::path::Path;
 use openssl::{pkey::{PKey, Private}, hash::{hash, MessageDigest}, rsa::Rsa};
+use tauri::window::Window;
 
 #[derive(Clone, Debug)]
 pub struct Configuration {
@@ -7,10 +8,11 @@ pub struct Configuration {
     key_hex: String,
     pkey: PKey<Private>,
     server_url: String,
+    window: Window,
 }
 
 impl Configuration {
-    pub fn new(nick: String, server_url: String) -> Configuration {
+    pub fn new(nick: String, server_url: String, window: Window) -> Configuration {
         let private_key = load_or_generate_private_key();
         let pub_key = private_key.public_key_to_pem().unwrap();
         let key_hex = hash(MessageDigest::md5(), &pub_key).unwrap();
@@ -21,6 +23,7 @@ impl Configuration {
             key_hex,
             pkey: private_key.to_owned(),
             server_url,
+            window,
         }
     }
 
@@ -35,6 +38,9 @@ impl Configuration {
     }
     pub fn get_server_url(&self) -> String {
         self.server_url.clone()
+    }
+    pub fn get_window(&self) -> Window {
+        self.window.clone()
     }
 }
 

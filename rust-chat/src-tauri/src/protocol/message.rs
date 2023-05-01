@@ -10,6 +10,17 @@ pub enum MessageType {
     Hello, History, Post, Subscribe
 }
 
+impl Display for MessageType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MessageType::Hello => f.write_str("hello"),
+            MessageType::History => f.write_str("history"),
+            MessageType::Post => f.write_str("post"),
+            MessageType::Subscribe => f.write_str("subscribe"),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ServerReason {

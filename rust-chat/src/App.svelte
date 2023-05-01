@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  // import { invoke } from "@tauri-apps/api/tauri"
+  import { invoke } from "@tauri-apps/api/tauri"
 
   import Post from "./lib/Post.svelte";
 
@@ -28,6 +28,7 @@
     listenerDeregistrations.push(
       await listen<string>("post", (event) => {
         let content = JSON.parse(event.payload);
+        content.timestamp = new Date(content.timestamp);
         posts.push(content);
         posts = posts;
       })
@@ -49,6 +50,8 @@
 
   async function postMessage() {
     const doScroll = isScrolledToBottom(chatHistory);
+
+    invoke('post', {message});
     posts.push({ nick: "Me", content: message, timestamp: new Date() });
     posts = posts;
     message = "";
@@ -77,8 +80,8 @@
           nick={post.nick}
           timestamp={post.timestamp}
           content={post.content}
-          isReply={index % 2 == 1}
           />
+          <!-- isReply={index % 2 == 1} -->
       {/each}
       <div id="end-of-chat" />
     </div>

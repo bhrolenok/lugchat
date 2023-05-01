@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lug Chat: Loading</title>
+    <link rel="fontawesome/css/solid.min.css"/>
+    <style>
+body {
+    background-color: #fff;
+    font-family: sans-serif;
+    font-weight: 600;
+    height: 100%;
+}
+.fa-spin {
+  -webkit-animation: fa-spin 2s linear infinite;
+  animation: fa-spin 2s linear infinite;
+}
+.fa-pulse {
+  -webkit-animation: fa-spin 1.2s steps(8) infinite;
+  animation: fa-spin 1.2s steps(8) infinite;
+}
+@-webkit-keyframes fa-spin {
+  0% {
+    -webkit-transform: rotate(0deg);
+            transform: rotate(0deg); }
+  100% {
+    -webkit-transform: rotate(359deg);
+            transform: rotate(359deg); } }
+
+@keyframes fa-spin {
+  0% {
+    -webkit-transform: rotate(0deg);
+            transform: rotate(0deg); }
+  100% {
+    -webkit-transform: rotate(359deg);
+            transform: rotate(359deg); } }
+
+.loading {
+  background: white;
+  height: 200px;
+  width: 60%;
+  margin: 0 auto;
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: auto;
+}
+.loading p {
+  position: absolute;
+  text-align: center;
+  top: 50%;
+  transform: translate(0%, -50%);
+}
+    </style>
+  </head>
+  <body>
+    <div class="loading">
+        <p>Loading.  Please wait...<br/>
+          <span class="fa-pulse">
+            <svg width="48px" height="48px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 1V5" stroke="#1C1C1C" stroke-width="1.7" stroke-linecap="round"/>
+              <path d="M19.4246 18.9246L16.5961 16.0962" stroke="#1C1C1C" stroke-width="1.7" stroke-linecap="round"/>
+              <path d="M22.5 11.5L18.5 11.5" stroke="#1C1C1C" stroke-width="1.7" stroke-linecap="round"/>
+              <path d="M12 18V22" stroke="#1C1C1C" stroke-width="1.7" stroke-linecap="round"/>
+              <path d="M7.40381 6.90381L4.57538 4.07538" stroke="#1C1C1C" stroke-width="1.7" stroke-linecap="round"/>
+              <path d="M5.5 11.5L1.5 11.5" stroke="#1C1C1C" stroke-width="1.7" stroke-linecap="round"/>
+              <path d="M7.40381 16.0962L4.57538 18.9246" stroke="#1C1C1C" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+          </span>
+	</p>
+    </div>
+  </body>
+</html>

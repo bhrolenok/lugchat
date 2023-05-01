@@ -20,6 +20,7 @@ use url::Url;
 use crate::chat_error::ChatError;
 use crate::configuration::Configuration;
 use crate::protocol::message::{ServerMessage, ServerAcceptCode, UnmappedMessage};
+use crate::protocol::message::MessageType;
 use crate::protocol::envelope::SignedEnvelope;
 use crate::utc_as_millis;
 
@@ -66,10 +67,12 @@ impl Connection {
         // Create a thread to handle websocket functionality
         let map = sent_msg_map.clone();
         let halt_token = cancel_token.child_token();
+        let window = config.get_window();
         let ws_thread: JoinHandle<ChatWebSocket> = tokio::spawn(async move {
             let mut is_running: bool = true;
             let (mut sink, mut stream) = ws.split();
             while is_running {
+                println!("WS Handle Loop start");
                 tokio::select! {
                     response = stream.next() => {
                         let msg: Message = response.unwrap().unwrap(); // FIXME
@@ -80,25 +83,49 @@ impl Connection {
                                 if envelope.is_ok() {
                                     let envelope = envelope.unwrap();
                                     //TODO sig verification
-
+                                    
                                     if envelope.is_server_response() {
                                         let resp: ServerMessage = envelope.into();
+                                        println!("Handling response: {}", resp.response_to_type);
                                         let sender = map.lock().unwrap().remove(&resp.orig_sig);
                                         if sender.is_some() {
                                             let _ = sender.unwrap().send(resp);
                                         }
                                     } else {
                                         let msg: UnmappedMessage = envelope.into();
+                                        println!("Handling broadcast: {}", msg);
+
                                         // TODO: Message handling
-                                        println!("{}", msg)
+                                        match msg.msg_type {
+                                            MessageType::Hello | MessageType::Subscribe => todo!(),
+                                            MessageType::History => todo!(),
+                                            MessageType::Post => {
+                                                let payload = serde_json::json!({
+                                                    "nick": msg.nick,
+                                                    "timestamp": utc_as_millis!(msg.time),
+                                                    "content": msg.get_content_str("postContent".into())
+                                                });
+                                                let result = window.emit("post", payload.to_string());
+                                                if result.is_err() {
+                                                    tauri::api::dialog::message(Some(&window), "Error", format!("Failed to emit: {}", result.unwrap_err()).as_str())
+                                                }
+                                            },
+                                        }
                                     }
+                                } else {
+                                    println!("Bad envelope")
                                 }
                             },
                             Message::Close(_) => {
                                 halt_token.cancel();
                                 is_running = false;
                             }
-                            _ => {}, // TODO: Binary?
+                            Message::Binary(b) => {
+                                println!("Binary received: len({})", b.len())
+                            }
+                            _ => {
+                                println!("Unhandled type")
+                            }, // TODO: Binary?
                         }
                     }
                     to_send = rx.recv() => {
@@ -185,7 +212,19 @@ impl Connection {
         Ok(())
     }
 
-    pub async fn send(&mut self, request: Value) -> Result<ServerMessage, ChatError> {
+    pub async fn post(&self, content: String) -> Result<ServerMessage, ChatError> {
+        let post = serde_json::json!({
+            "type": "post",
+            "nick": self.configuration.get_nick(),
+            "time": utc_as_millis!(),
+            "content": {
+                "postContent": content,
+            }
+        });
+        self.send(post).await
+    }
+
+    pub async fn send(&self, request: Value) -> Result<ServerMessage, ChatError> {
         let keypair = self.configuration.get_private_key();
 
         let mut signer = Signer::new(MessageDigest::sha512(), &keypair).unwrap();
