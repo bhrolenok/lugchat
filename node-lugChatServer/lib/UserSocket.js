@@ -121,7 +121,7 @@ export default class UserSocket extends EventEmitter {
    * @param {Protocol.ServerMessage} sm message to reply with
    */
   async #reply(sm) {
-    const mw = Protocol.wrapResponse(sm, this.#svrPvtKey);
+    const mw = Protocol.wrapResponse(sm, this.#svrPvtKey, this.#svrPubKey);
     log('server reply', sm.response, sm.responseToType, sm.content); // mw);
     return this.send(mw);
   }

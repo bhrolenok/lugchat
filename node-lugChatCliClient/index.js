@@ -132,7 +132,7 @@ const ws = new WebSocket(uri, { rejectUnauthorized: false });
  * @param {Protocol.ClientMessage} message what to ship to the server
  */
 async function send(message) {
-  await ws.send(JSON.stringify(Protocol.wrapResponse(message, pvtKeyStr)));
+  await ws.send(JSON.stringify(Protocol.wrapResponse(message, pvtKeyStr, pubKeyStr)));
 }
 
 // Handle Errors

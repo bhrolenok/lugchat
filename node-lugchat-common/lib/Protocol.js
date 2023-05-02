@@ -151,15 +151,16 @@ const UserStatus = {
  * wraps the server message with the sig
  * @param {ClientMessage | ServerMessage} m can be either a ServerMessage or ClientMessage
  * @param {string} signingKey pem key to sign the message with
+ * @param {string} publicKey pem public key to hash
  * @returns {MessageWrapper} wrapped message
  */
-function wrapResponse(m, signingKey) {
+function wrapResponse(m, signingKey, publicKey) {
   const sig = sign(signingKey, JSON.stringify(m));
   /** @type {MessageWrapper} */
   const mw = {
     message: m,
     sig,
-    keyHash: md5(signingKey),
+    keyHash: md5(publicKey),
     protocolVersion: 1,
   };
   return mw;

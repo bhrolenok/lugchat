@@ -39,15 +39,15 @@ function sign(privateKey, content) {
 }
 
 /**
- * hash the given string with md5 into hex format
+ * hash the given string with md5 into base64 format
  * @param {string|object} str if object, JSON.stringify is called prior to sum
- * @returns {string} hex format md5 sum
+ * @returns {string} base64 format md5 sum
  */
 function md5(str) {
   if (typeof str === 'object') {
-    return crypto.createHash('md5').update(JSON.stringify(str)).digest('hex').toString();
+    return crypto.createHash('md5').update(JSON.stringify(str)).digest('base64').toString();
   }
-  return crypto.createHash('md5').update(str).digest('hex').toString();
+  return crypto.createHash('md5').update(str).digest('base64').toString();
 }
 
 /**
