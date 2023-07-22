@@ -63,11 +63,6 @@ fn main() {
                 main_window.show().unwrap();
 
                 // Continue to load user and historical messages
-                main_window.emit("post", serde_json::json!({
-                    "nick": "???",
-                    "timestamp": 0,
-                    "content": "test emit"
-                }).to_string())
             });
             Ok(())
         })

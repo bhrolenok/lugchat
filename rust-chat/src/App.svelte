@@ -52,8 +52,8 @@
     const doScroll = isScrolledToBottom(chatHistory);
 
     invoke('post', {message});
-    posts.push({ nick: "Me", content: message, timestamp: new Date() });
-    posts = posts;
+    // posts.push({ nick: "Me", content: message, timestamp: new Date() });
+    // posts = posts;
     message = "";
 
     if (doScroll) {

@@ -97,8 +97,11 @@ impl Connection {
 
                                         // TODO: Message handling
                                         match msg.msg_type {
-                                            MessageType::Hello | MessageType::Subscribe => todo!(),
-                                            MessageType::History => todo!(),
+                                            MessageType::Hello | MessageType::Subscribe => {
+                                                // TODO
+                                            },
+                                            MessageType::History => {
+                                            },
                                             MessageType::Post => {
                                                 let payload = serde_json::json!({
                                                     "nick": msg.nick,
@@ -190,7 +193,7 @@ impl Connection {
         let keypair = self.configuration.get_private_key();
         let pub_key = keypair.public_key_to_pem().unwrap();
 
-        // Generate and send the 'hello' message
+        // Generate the 'hello' and 'subscribe' message
         let pub_key = String::from_utf8_lossy(&pub_key);
         let hello = serde_json::json!({
             "type": "hello",
@@ -200,14 +203,27 @@ impl Connection {
                 "publicKey": pub_key,
             }
         });
+        let subscribe = serde_json::json!({
+            "type": "subscribe",
+            "nick": self.configuration.get_nick(),
+            "time": utc_as_millis!(),
+            "content": {
+                "publicKey": pub_key,
+                "lastClientTime": 0,
+            }
+        });
 
-        let resp = self.send(hello).await;
+        // Send each logon message sequentially
+        let msgs = vec![hello, subscribe];
+        for msg in msgs {
+            let resp = self.send(msg).await;
         if resp.is_err() {
             return Err(resp.unwrap_err());
         }
         let resp = resp.unwrap();
         if resp.response == ServerAcceptCode::Reject {
             return Err(ChatError::Protocol(resp.reason.unwrap()));
+            }
         }
         Ok(())
     }
