@@ -24,6 +24,7 @@ impl SignedEnvelope<'_> {
         raw.contains(r#""type":"response""#)
     }
 
+    #[allow(dead_code)]
     pub fn is_client_message(&self) -> bool {
         !self.is_server_response()
     }

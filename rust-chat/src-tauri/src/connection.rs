@@ -12,7 +12,7 @@ use time::OffsetDateTime;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tokio_tungstenite::tungstenite::{Error as TungsteniteError, Message};
+use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream, connect_async_tls_with_config, Connector};
 use tokio_util::sync::CancellationToken;
 use url::Url;
@@ -39,7 +39,7 @@ pub struct Connection {
     // Websocket thread handles and controllers
     cancel_token: CancellationToken,
     send_channel: mpsc::Sender<CommunicationPackage>,
-    ws_thread: JoinHandle<ChatWebSocket>,
+    ws_thread: JoinHandle<()>,
 }
 
 #[allow(dead_code)]
@@ -68,7 +68,8 @@ impl Connection {
         let map = sent_msg_map.clone();
         let halt_token = cancel_token.child_token();
         let window = config.get_window();
-        let ws_thread: JoinHandle<ChatWebSocket> = tokio::spawn(async move {
+        let t_config = config.clone();
+        let ws_thread: JoinHandle<()> = tokio::spawn(async move {
             let mut is_running: bool = true;
             let (mut sink, mut stream) = ws.split();
             while is_running {
@@ -90,6 +91,8 @@ impl Connection {
                                         let sender = map.lock().unwrap().remove(&resp.orig_sig);
                                         if sender.is_some() {
                                             let _ = sender.unwrap().send(resp);
+                                        } else {
+                                            println!("Unmapped response, {} pending: {}", map.lock().unwrap().len(), resp)
                                         }
                                     } else {
                                         let msg: UnmappedMessage = envelope.into();
@@ -100,8 +103,7 @@ impl Connection {
                                             MessageType::Hello | MessageType::Subscribe => {
                                                 // TODO
                                             },
-                                            MessageType::History => {
-                                            },
+                                            MessageType::History => { /* We ignore history requests from other users */ },
                                             MessageType::Post => {
                                                 let payload = serde_json::json!({
                                                     "nick": msg.nick,
@@ -148,7 +150,19 @@ impl Connection {
                     }
                 }
             }
-            return sink.reunite(stream).unwrap();
+            
+            // Let's send a disconnect message to the server before closing the socket
+            let disconnect = serde_json::json!({
+                "type": "disconnect", 
+                "nick": t_config.get_nick(),
+                "time": utc_as_millis!(),
+            });
+            let (_, disconnect) = Connection::create_envelope(disconnect, &t_config);
+            let _ = sink.send(Message::text(disconnect.to_string())).await;
+
+            // Recombine and gracefully close the websocket (eat any error)
+            let _ = sink.reunite(stream).unwrap().close(None).await;
+            ()
         });
 
         let mut conn = Connection {
@@ -160,39 +174,76 @@ impl Connection {
         };
 
         // Let's send a hello and subscribe and verify that we've connected
-        conn.greet_server().await?;
+        conn.server_greet().await?;
 
         Ok(conn)
     }
 
     /// Destroys the underlying resources within a Connection safely.
-    pub async fn close(conn: Connection) -> Result<(), TungsteniteError> {
-
+    pub async fn close(conn: Connection) -> Result<(), ChatError> {
         // Shutdown the worker thread
-        conn.cancel_token.cancel();
-        let ws: Result<ChatWebSocket, _> = conn.ws_thread.await;
-        if ws.is_ok() {
-            let mut ws = ws.unwrap();
+        conn.signal_close();
 
-            // TODO: Send disconnect
-            // let _ = ws.send(serde_json::json!({
-            //     "type": "disconnect",
-            //     "nick": conn.configuration.get_nick(),
-            //     "time": utc_as_millis!(),
-            // })).await;
-
-            // Gracefully close the websocket
-            ws.close(None).await?
+        // Ensure worker thread is shutdown
+        let join: Result<_, tokio::task::JoinError> = conn.ws_thread.await;
+        if join.is_err() {
+            return Err(ChatError::Other(join.err().unwrap().to_string()));
         }
-        
         Ok(())
     }
 
+    /// Retrieves the current number of sent messages pending a response.
+    pub fn pending(&self) -> usize {
+        self.sent_msg_map.lock().unwrap().len()
+    }
+
+    /// Non-block signal to the socket listening thread to halt operation.
+    pub fn signal_close(&self) {
+        self.cancel_token.cancel();
+    }
+
+    pub async fn post(&self, content: String) -> Result<ServerMessage, ChatError> {
+        let post = serde_json::json!({
+            "type": "post",
+            "nick": self.configuration.get_nick(),
+            "time": utc_as_millis!(),
+            "content": {
+                "postContent": content,
+            }
+        });
+        self.send(post).await
+    }
+
+    pub async fn send(&self, request: Value) -> Result<ServerMessage, ChatError> {
+        let (signature, envelope) = Connection::create_envelope(request, &self.configuration);
+
+        let (sender, rx) = oneshot::channel::<ServerMessage>();
+        let _ = self.send_channel.send(CommunicationPackage{ envelope, signature, sender }).await;
+
+        rx.await.map_err(ChatError::from)
+    }
+
+    /// Internal function for creating signed message envelopes
+    fn create_envelope(request:Value, config: &Configuration) -> (String, Value) {
+        let keypair = config.get_private_key();
+
+        let mut signer = Signer::new(MessageDigest::sha512(), &keypair).unwrap();
+        signer.update(request.to_string().as_bytes()).unwrap();
+
+        let signature = Base64::STANDARD_NO_PAD.encode(signer.sign_to_vec().unwrap());
+        return (signature.clone(), serde_json::json!({
+            "message": request,
+            "sig": signature,
+            "keyHash": config.get_key_hex(),
+            "protocolVersion": 1,
+        }));
+    }
+    
     /// Internal function for sending a Hello and Subscribe to the server.
-    async fn greet_server(&mut self) -> Result<(), ChatError>{
+    async fn server_greet(&mut self) -> Result<(), ChatError>{
         let keypair = self.configuration.get_private_key();
         let pub_key = keypair.public_key_to_pem().unwrap();
-
+        
         // Generate the 'hello' and 'subscribe' message
         let pub_key = String::from_utf8_lossy(&pub_key);
         let hello = serde_json::json!({
@@ -216,48 +267,17 @@ impl Connection {
         // Send each logon message sequentially
         let msgs = vec![hello, subscribe];
         for msg in msgs {
+            println!("Sending logon {}", msg["message"]["type"]);
             let resp = self.send(msg).await;
-        if resp.is_err() {
-            return Err(resp.unwrap_err());
-        }
-        let resp = resp.unwrap();
-        if resp.response == ServerAcceptCode::Reject {
-            return Err(ChatError::Protocol(resp.reason.unwrap()));
+            if resp.is_err() {
+                return Err(resp.unwrap_err());
+            }
+            let resp = resp.unwrap();
+            if resp.response == ServerAcceptCode::Reject {
+                return Err(ChatError::Protocol(resp.reason.unwrap()));
             }
         }
         Ok(())
-    }
-
-    pub async fn post(&self, content: String) -> Result<ServerMessage, ChatError> {
-        let post = serde_json::json!({
-            "type": "post",
-            "nick": self.configuration.get_nick(),
-            "time": utc_as_millis!(),
-            "content": {
-                "postContent": content,
-            }
-        });
-        self.send(post).await
-    }
-
-    pub async fn send(&self, request: Value) -> Result<ServerMessage, ChatError> {
-        let keypair = self.configuration.get_private_key();
-
-        let mut signer = Signer::new(MessageDigest::sha512(), &keypair).unwrap();
-        signer.update(request.to_string().as_bytes()).unwrap();
-
-        let signature = Base64::STANDARD_NO_PAD.encode(signer.sign_to_vec().unwrap());
-        let envelope = serde_json::json!({
-            "message": request,
-            "sig": signature,
-            "keyHash": self.configuration.get_key_hex(),
-            "protocolVersion": 1,
-        });
-
-        let (sender, rx) = oneshot::channel::<ServerMessage>();
-        let _result = self.send_channel.send(CommunicationPackage{ envelope, signature, sender }).await;
-
-        rx.await.map_err(ChatError::from)
     }
 
     // pub async fn send_and_process<F>(&mut self, request: Value, response_handler: F)

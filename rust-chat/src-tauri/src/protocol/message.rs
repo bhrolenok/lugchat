@@ -57,6 +57,17 @@ pub struct ServerMessage {
 impl ServerMessage {
 }
 
+impl Display for ServerMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let valid = if self.response == ServerAcceptCode::Accept { "accept" } else { "reject" };
+
+        f.debug_struct("ServerMessage")
+            .field("responseToType", &self.response_to_type.to_string())
+            .field("response", &valid)
+            .finish()
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UnmappedMessage {
     #[serde(rename="type")]

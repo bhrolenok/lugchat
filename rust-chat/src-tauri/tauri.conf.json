@@ -49,10 +49,10 @@
        "label": "splashscreen",
         "fullscreen": false,
         "resizable": false,
-	"decorations": false,
+        "decorations": false,
         "width": 400,
         "height": 200,
-	"url": "splashscreen.html",
+        "url": "splashscreen.html",
         "visible": false
       }
     ]

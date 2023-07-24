@@ -9,6 +9,7 @@
 use serde::{de::{self}, Deserialize, Deserializer, Serialize, Serializer};
 use time::OffsetDateTime;
 
+#[allow(dead_code)]
 /// Serialize an `OffsetDateTime` as its Unix timestamp with millisecond precision
 pub fn serialize<S: Serializer>(
     datetime: &OffsetDateTime,
@@ -32,6 +33,7 @@ pub fn deserialize<'a, D: Deserializer<'a>>(deserializer: D) -> Result<OffsetDat
     }
 }
 
+#[allow(dead_code)]
 /// Treat an `Option<OffsetDateTime>` as a [Unix timestamp] for the purposes of
 /// serde.
 ///

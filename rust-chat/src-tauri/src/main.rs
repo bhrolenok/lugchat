@@ -3,7 +3,7 @@
 
 use configuration::Configuration;
 use connection::Connection;
-use tauri::Manager;
+use tauri::{Manager, Window};
 
 mod chat_error;
 mod configuration;
@@ -15,7 +15,7 @@ mod utils;
 #[tauri::command]
 fn greet(conf: tauri::State<'_, Configuration>) {
     let window = conf.get_window();
-    window.emit("post", serde_json::json!({
+    let _ = window.emit("post", serde_json::json!({
         "nick": "???",
         "timestamp": 0,
         "content": "Test message passing from Rust"
@@ -32,7 +32,14 @@ async fn post(connection: tauri::State<'_, Connection>, message: String) -> Resu
 
 
 fn main() {
-    println!("Starting");
+    // Configure a global panic intercepter that displays an error to the user and then shutdowns.
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_panic(info);
+        tauri::api::dialog::message(None::<&Window>, "Exiting...", "A fatal error was encountered and the application must close.");
+        std::process::exit(1);
+    }));
+
     tauri::Builder::default()
         .setup(|app|{
             let main_window = app.get_window("main").unwrap();
@@ -67,6 +74,12 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![greet, post])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { .. } => {
+                app.state::<Connection>().signal_close();
+            }
+            _ => {}
+        });
 }
