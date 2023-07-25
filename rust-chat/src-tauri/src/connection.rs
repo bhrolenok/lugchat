@@ -100,6 +100,7 @@ impl Connection {
 
                                         // TODO: Message handling
                                         match msg.msg_type {
+                                            MessageType::Disconnect => { /* TODO */ },
                                             MessageType::Hello | MessageType::Subscribe => {
                                                 // TODO
                                             },
@@ -202,6 +203,26 @@ impl Connection {
         self.cancel_token.cancel();
     }
 
+    /// Retrieve a historical block of posts
+    pub async fn history(&self, start: OffsetDateTime, end: Option<OffsetDateTime>) -> Result<ServerMessage, ChatError> {
+        let mut history = serde_json::json!({
+            "type": "history", 
+            "nick": self.configuration.get_nick(),
+            "time": utc_as_millis!(),
+            "content": {
+                "start": format!("{}", utc_as_millis!(start)),
+            }
+        });
+
+        history["content"]["end"] = match end {
+            Some(t) => serde_json::json!(utc_as_millis!(t)),
+            None => serde_json::Value::Null,
+        };
+
+        self.send(history).await
+    }
+
+    /// Send a post to the server that blocks and waits for a response.
     pub async fn post(&self, content: String) -> Result<ServerMessage, ChatError> {
         let post = serde_json::json!({
             "type": "post",
@@ -214,7 +235,7 @@ impl Connection {
         self.send(post).await
     }
 
-    pub async fn send(&self, request: Value) -> Result<ServerMessage, ChatError> {
+    async fn send(&self, request: Value) -> Result<ServerMessage, ChatError> {
         let (signature, envelope) = Connection::create_envelope(request, &self.configuration);
 
         let (sender, rx) = oneshot::channel::<ServerMessage>();

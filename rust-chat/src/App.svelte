@@ -16,23 +16,37 @@
     nick: string;
     timestamp: Date;
     content: string;
+    isReply: boolean;
   }
 
   let chatHistory: HTMLDivElement;
   let message: string = "";
+  let pending: String[] = [];
   let posts: UserMessage[] = [];
   let users: Map<string, UserDetails> = new Map();
   const listenerDeregistrations: UnlistenFn[] = [];
 
   onMount(async () => {
     listenerDeregistrations.push(
-      await listen<string>("post", (event) => {
-        let content = JSON.parse(event.payload);
-        content.timestamp = new Date(content.timestamp);
-        posts.push(content);
-        posts = posts;
+      await listen<string>("post", async (event) => {
+        const doScroll = isScrolledToBottom(chatHistory);
+        let msg: UserMessage = JSON.parse(event.payload);
+        msg.timestamp = new Date(msg.timestamp);
+        addPost(msg);
+
+        if (doScroll) {
+          await tick();
+          scrollToBottom(chatHistory);
+        }
       })
     );
+
+    const hist: string[] = await invoke("history", {start: 0});
+    hist.forEach((raw) => {
+      const msg = JSON.parse(raw);
+      msg.timestamp = new Date(msg.timestamp);
+      addPost(msg);
+    });
   });
 
   onDestroy(() => {
@@ -48,12 +62,36 @@
     }
   }
 
+  function addPost(content: UserMessage) {
+    if (posts.length === 0) {
+      content.isReply = false;
+      posts.push(content);
+    } else {
+      const last = posts.at(-1);
+      content.isReply = isMessageReply(last, content);
+      posts.push(content);
+      if (last.timestamp >= content.timestamp) {
+        // We got a message out of order, sort and reset all messages.
+        posts.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+        posts.forEach( (msg, index, arr) => {
+          if (index > 0) {
+            const prev = arr[index-1];
+            msg.isReply = isMessageReply(prev, content);
+          }
+        });
+      }
+    }
+    posts = posts;
+  }
+
+  function isMessageReply(a: UserMessage, b: UserMessage): boolean {
+    return a.nick === b.nick && Math.abs(a.timestamp.getTime() - b.timestamp.getTime()) / 1000 < 300;
+  }
+
   async function postMessage() {
     const doScroll = isScrolledToBottom(chatHistory);
 
     invoke('post', {message});
-    // posts.push({ nick: "Me", content: message, timestamp: new Date() });
-    // posts = posts;
     message = "";
 
     if (doScroll) {
@@ -80,8 +118,8 @@
           nick={post.nick}
           timestamp={post.timestamp}
           content={post.content}
+          isReply={post.isReply}
           />
-          <!-- isReply={index % 2 == 1} -->
       {/each}
       <div id="end-of-chat" />
     </div>
@@ -103,8 +141,11 @@
     bottom: 0;
     position: fixed;
     margin: 10px 10px 20px 10px;
+    max-width: inherit;
     padding: 0px 10px;
-    width: calc(100vw - 20px);
+    width: -webkit-calc(100% - 20px);
+    width:    -moz-calc(100% - 20px);
+    width:         calc(100% - 20px);
     z-index: 50;
   }
   .bottom-fixed textarea {

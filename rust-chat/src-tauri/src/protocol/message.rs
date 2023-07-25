@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum MessageType {
-    Hello, History, Post, Subscribe
+    Disconnect, Hello, History, Post, Subscribe
 }
 
 impl Display for MessageType {
@@ -17,6 +17,7 @@ impl Display for MessageType {
             MessageType::History => f.write_str("history"),
             MessageType::Post => f.write_str("post"),
             MessageType::Subscribe => f.write_str("subscribe"),
+            MessageType::Disconnect => f.write_str("disconnect"),
         }
     }
 }
@@ -75,6 +76,7 @@ pub struct UnmappedMessage {
     pub nick: String,
     #[serde(with = "crate::utils::timestamp")]
     pub time: OffsetDateTime,
+    #[serde(default = "HashMap::new")]
     pub content: HashMap<String, Value>,
 }
 
@@ -146,6 +148,7 @@ mod tests {
                 History => assert!(false),
                 Post => assert_eq!("Hi!", result.get_content_str(String::from("postContent")).unwrap()),
                 Subscribe => assert!(result.content.is_empty()),
+                _ => {},
             }
         }
     }

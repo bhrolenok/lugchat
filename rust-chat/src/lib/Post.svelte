@@ -17,8 +17,8 @@
     }
 </script>
 
-<article class="media">
-    <figure class="media-left">
+<article class={isReply ? "isReply media" : "media"}>
+    <figure class="media-left center">
         <p class="image w100">
             {#if isReply}
                 <small>{getTimeOnly()}</small>
@@ -60,6 +60,16 @@
     height: 1.5em;
     padding-left: .5em;
     padding-right: .5em;
+}
+
+.center {
+    text-align: center;
+}
+
+article.isReply {
+    border-top: none;
+    margin-top: .25rem;
+    padding-top: 0px;
 }
 
 .w100 {
