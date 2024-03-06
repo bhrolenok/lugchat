@@ -1,0 +1,101 @@
+[gd_scene load_steps=2 format=3 uid="uid://lqxcpd6e4xuo"]
+
+[ext_resource type="Script" path="res://scenes/main_menu/main_menu.gd" id="1_b04i8"]
+
+[node name="MainMenu" type="CanvasLayer"]
+script = ExtResource("1_b04i8")
+
+[node name="TitleLabel" type="Label" parent="."]
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 67.0
+grow_horizontal = 2
+theme_override_font_sizes/font_size = 48
+text = "
+LUG Chat"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Panel" type="Panel" parent="."]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -150.0
+offset_top = -38.0
+offset_right = 150.0
+offset_bottom = 121.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Profile" type="VBoxContainer" parent="Panel"]
+layout_mode = 2
+offset_right = 300.0
+offset_bottom = 159.0
+
+[node name="UserField" type="HBoxContainer" parent="Panel/Profile"]
+layout_mode = 2
+
+[node name="UserLabel" type="Label" parent="Panel/Profile/UserField"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Nickname"
+
+[node name="UserText" type="LineEdit" parent="Panel/Profile/UserField"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="PasswordField" type="HBoxContainer" parent="Panel/Profile"]
+layout_mode = 2
+
+[node name="PasswordLabel" type="Label" parent="Panel/Profile/PasswordField"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Password"
+
+[node name="PasswordText" type="LineEdit" parent="Panel/Profile/PasswordField"]
+layout_mode = 2
+size_flags_horizontal = 3
+secret = true
+
+[node name="ServerField" type="HBoxContainer" parent="Panel/Profile"]
+layout_mode = 2
+
+[node name="ServerLabel" type="Label" parent="Panel/Profile/ServerField"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Server URL"
+
+[node name="ServerText" type="LineEdit" parent="Panel/Profile/ServerField"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "wss://localhost:8080"
+
+[node name="CenterContainer" type="HBoxContainer" parent="Panel"]
+custom_minimum_size = Vector2(300, 50)
+layout_mode = 2
+offset_top = 109.0
+offset_right = 300.0
+offset_bottom = 159.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_vertical = 8
+alignment = 1
+
+[node name="ConnectButton" type="Button" parent="Panel/CenterContainer"]
+layout_mode = 2
+text = "Connect"
+
+[node name="SettingsButton" type="Button" parent="Panel/CenterContainer"]
+layout_mode = 2
+disabled = true
+text = "Settings"
+
+[node name="Quit" type="Button" parent="Panel/CenterContainer"]
+layout_mode = 2
+text = "Quit"
+
+[connection signal="ready" from="." to="." method="_on_ready"]
+[connection signal="pressed" from="Panel/CenterContainer/ConnectButton" to="." method="_on_connect_button_pressed"]
+[connection signal="pressed" from="Panel/CenterContainer/Quit" to="." method="_on_quit_pressed"]

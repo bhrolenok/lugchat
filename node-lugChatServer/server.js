@@ -63,11 +63,17 @@ let trackedUsers = [];
  */
 function broadcastMessage(mw) {
   // TODO: make sure its a messagewrapper!
-  log('broadcasting message', mw?.message?.type);
+  log('broadcasting message', mw?.message?.type, 'to', trackedUsers.length, 'users');
   trackedUsers.forEach((us) => {
+    let {nick} = us.user;
     if (us.user.connStatus === ConnectionStatus.subscribed) {
       // TODO: handle failed send
-      us.send(mw);
+      us.send(mw)
+        // .catch((err) => {
+        //   log('broadcasting failed for ', nick, err);
+        // });
+    } else {
+      log('skipping broadcast to', nick);
     }
   });
 }
@@ -91,5 +97,5 @@ wss.on('connection', (ws, req) => {
 });
 
 server.listen(8080, () => {
-  log('server online');
+  log('server online (8080)');
 });

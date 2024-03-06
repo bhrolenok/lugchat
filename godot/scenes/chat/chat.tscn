@@ -1,0 +1,132 @@
+[gd_scene load_steps=4 format=3 uid="uid://ctl4qiybpqwoc"]
+
+[ext_resource type="Script" path="res://scenes/chat/chat.gd" id="1_7abhu"]
+[ext_resource type="Script" path="res://scenes/chat/chat_connection.gd" id="2_xtmtl"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_2lr4w"]
+bg_color = Color(0.431373, 0, 0, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0, 0, 0, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+expand_margin_left = 10.0
+expand_margin_top = 2.0
+expand_margin_right = 10.0
+expand_margin_bottom = 2.0
+
+[node name="Chat" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("1_7abhu")
+
+[node name="Panel" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ScrollContainer" type="ScrollContainer" parent="Panel"]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 5.0
+offset_top = 5.0
+offset_right = -5.0
+offset_bottom = -65.0
+grow_horizontal = 2
+
+[node name="History" type="VBoxContainer" parent="Panel/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Panel"]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -35.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="Connect" type="HBoxContainer" parent="Panel/VBoxContainer"]
+visible = false
+layout_mode = 2
+
+[node name="Host" type="LineEdit" parent="Panel/VBoxContainer/Connect"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "ws://localhost:8000/test/"
+placeholder_text = "ws://my.server/path/"
+
+[node name="Connect" type="Button" parent="Panel/VBoxContainer/Connect"]
+layout_mode = 2
+toggle_mode = true
+text = "Connect"
+
+[node name="Port" type="SpinBox" parent="Panel/VBoxContainer/Connect"]
+layout_mode = 2
+min_value = 1.0
+max_value = 65535.0
+value = 8000.0
+
+[node name="Listen" type="Button" parent="Panel/VBoxContainer/Connect"]
+layout_mode = 2
+toggle_mode = true
+text = "Listen"
+
+[node name="Send" type="HBoxContainer" parent="Panel/VBoxContainer"]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 2
+size_flags_vertical = 8
+
+[node name="LineEdit" type="TextEdit" parent="Panel/VBoxContainer/Send"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Enter some text to send..."
+wrap_mode = 1
+
+[node name="Send" type="Button" parent="Panel/VBoxContainer/Send"]
+layout_mode = 2
+text = "Send"
+
+[node name="OfflineLabel" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = -1
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_bottom = -65.0
+grow_vertical = 0
+theme_override_styles/normal = SubResource("StyleBoxFlat_2lr4w")
+text = "Offline"
+
+[node name="ReconnectTimer" type="Timer" parent="."]
+wait_time = 5.0
+one_shot = true
+
+[node name="ChatConnection" type="Node" parent="."]
+script = ExtResource("2_xtmtl")
+
+[connection signal="ready" from="." to="." method="_on_ready"]
+[connection signal="pressed" from="Panel/VBoxContainer/Send/Send" to="." method="_on_send_pressed"]
+[connection signal="timeout" from="ReconnectTimer" to="." method="_on_reconnect_timer_timeout"]
+[connection signal="connected_to_server" from="ChatConnection" to="." method="_on_chat_connection_connected_to_server"]
+[connection signal="connection_closed" from="ChatConnection" to="." method="_on_chat_connection_connection_closed"]
+[connection signal="message_received" from="ChatConnection" to="." method="_on_chat_connection_message_received"]

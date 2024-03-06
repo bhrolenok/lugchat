@@ -1,0 +1,76 @@
+[gd_scene load_steps=2 format=3 uid="uid://ctl4qiybpqwoc"]
+
+[ext_resource type="Script" path="res://scenes/chat/chat.gd" id="1_7abhu"]
+
+[node name="Chat" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("1_7abhu")
+
+[node name="Panel" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Panel"]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -35.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="History" type="VBoxContainer" parent="Panel/VBoxContainer"]
+layout_mode = 2
+
+[node name="Connect" type="HBoxContainer" parent="Panel/VBoxContainer"]
+visible = false
+layout_mode = 2
+
+[node name="Host" type="LineEdit" parent="Panel/VBoxContainer/Connect"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "ws://localhost:8000/test/"
+placeholder_text = "ws://my.server/path/"
+
+[node name="Connect" type="Button" parent="Panel/VBoxContainer/Connect"]
+layout_mode = 2
+toggle_mode = true
+text = "Connect"
+
+[node name="Port" type="SpinBox" parent="Panel/VBoxContainer/Connect"]
+layout_mode = 2
+min_value = 1.0
+max_value = 65535.0
+value = 8000.0
+
+[node name="Listen" type="Button" parent="Panel/VBoxContainer/Connect"]
+layout_mode = 2
+toggle_mode = true
+text = "Listen"
+
+[node name="Send" type="HBoxContainer" parent="Panel/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 8
+
+[node name="LineEdit" type="LineEdit" parent="Panel/VBoxContainer/Send"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Enter some text to send..."
+
+[node name="Send" type="Button" parent="Panel/VBoxContainer/Send"]
+layout_mode = 2
+text = "Send"
+
+[connection signal="ready" from="." to="." method="_on_ready"]
